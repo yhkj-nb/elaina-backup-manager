@@ -1,326 +1,314 @@
-# plugins/backup_manager/main.py
+# plugins/备份工具/main.py
 """
-重要信息备份与迁移工具
+重要信息备份与迁移工具 - v1.5
 
 功能：
-- 一键备份：备份 Bot 配置、框架配置、插件数据
-- 完整恢复：上传ZIP后自动恢复所有配置和数据
-- 配置迁移：QQ机器人配置自动填充，无需手动填写
-- 下载备份文件到本地
-- 删除旧备份
+- 备份 config/ 目录下的配置文件
+- 备份 data/ 目录下的插件数据
+- 上传/下载/删除备份文件
+- 恢复备份
 
-仓库地址: https://github.com/yhkj-nb/elaina-backup-manager
-
-作者: yhkj-nb (云痕科技)
-版本: 1.0.0
+作者: yhkj-nb
+版本: 1.5
+仓库: https://github.com/yhkj-nb/elaina-backup-manager
+许可证: MIT
 """
 
 import json
 import zipfile
-import yaml
-import shutil
-import tempfile
+import re
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Any, Optional
+from urllib.parse import unquote
 
 from aiohttp import web
-from aiohttp.web_fileresponse import FileResponse
-from aiohttp.web_request import Request
 
-from core.plugin.decorators import handler, on_load, on_unload
+from core.plugin.decorators import on_load, on_unload
 from core.plugin.web_pages import register_page, unregister_page, register_route
 from core.base.logger import get_logger, PLUGIN
-from core.base.config import cfg
 
 # ==================== 插件元数据 ====================
 
 __plugin_meta__ = {
     'name': '重要信息备份与迁移工具',
-    'author': 'yhkj-nb (云痕科技)',
-    'description': '一键备份和迁移 Bot 配置、框架配置、插件数据',
-    'version': '1.0.0',
-    'license': 'MIT',
+    'author': 'yhkj-nb',
+    'description': '选择性备份和迁移 Bot 配置、框架配置、插件数据',
+    'version': '1.5',
     'github': 'https://github.com/yhkj-nb/elaina-backup-manager',
-    'homepage': 'https://github.com/yhkj-nb/elaina-backup-manager',
+    'license': 'MIT',
 }
-
-# ==================== 日志 ====================
 
 log = get_logger(PLUGIN, '备份工具')
 
 # ==================== 路径常量 ====================
 
-PLUGIN_DIR = Path(__file__).parent
+PLUGIN_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = PLUGIN_DIR.parent.parent
 CONFIG_DIR = PROJECT_ROOT / 'config'
-DATA_DIR = PROJECT_ROOT / 'data'
-BACKUP_DIR = PLUGIN_DIR / 'data' / 'backups'
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = PLUGIN_DIR / 'data'
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# ==================== 读取 HTML ====================
+# ==================== 工具函数 ====================
 
-def get_html_content() -> str:
-    """读取同目录下的 plane.html"""
-    html_path = PLUGIN_DIR / 'plane.html'
-    if html_path.exists():
-        with open(html_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    return _get_fallback_html()
 
-def _get_fallback_html() -> str:
-    """备用HTML"""
-    return """<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>备份工具</title></head>
-<body>
-<h1>重要信息备份与迁移工具</h1>
-<p>请确保 plane.html 文件存在</p>
-<p>备份文件存放在: data/backups/</p>
-</body>
-</html>"""
+def format_size(size_bytes: int) -> str:
+    if size_bytes < 0:
+        return "0 B"
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
-# ==================== 核心功能 ====================
-
-def get_backups_list() -> List[Dict[str, Any]]:
-    """获取所有备份文件列表"""
-    backups = []
-    if not BACKUP_DIR.exists():
-        return backups
-    
-    for f in sorted(BACKUP_DIR.glob('*.zip'), key=lambda x: x.stat().st_mtime, reverse=True):
-        stat = f.stat()
-        info = get_backup_info(f)
-        backups.append({
-            'filename': f.name,
-            'size': format_size(stat.st_size),
-            'size_bytes': stat.st_size,
-            'created_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-            'info': info,
-            'path': str(f.absolute())
-        })
-    return backups
-
-def get_backup_info(zip_path: Path) -> Dict[str, Any]:
-    """读取备份中的 info.json"""
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            if 'backup_info.json' in zf.namelist():
-                with zf.open('backup_info.json') as f:
-                    return json.load(f)
-    except:
-        pass
-    return {}
-
-def format_size(size: int) -> str:
-    """格式化文件大小"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
-
-def generate_backup_info() -> Dict[str, Any]:
-    """生成备份信息"""
-    # 读取 bot.yaml 配置
-    bot_config = {}
-    bot_yaml = CONFIG_DIR / 'bot.yaml'
-    if bot_yaml.exists():
-        try:
-            with open(bot_yaml, 'r', encoding='utf-8') as f:
-                bot_config = yaml.safe_load(f) or {}
-        except:
-            pass
-    
-    # 获取配置文件列表
-    config_files = get_config_files()
-    
-    # 获取数据目录大小
-    data_size = 0
-    if DATA_DIR.exists():
-        for f in DATA_DIR.rglob('*'):
-            if f.is_file():
-                data_size += f.stat().st_size
-    
-    return {
-        'version': '1.0.0',
-        'created_at': datetime.now().isoformat(),
-        'created_at_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'bot_config': {
-            'appid': bot_config.get('appid', ''),
-            'secret': bot_config.get('secret', ''),
-            'token': bot_config.get('token', ''),
-            'platform': bot_config.get('platform', ''),
-            'sandbox': bot_config.get('sandbox', True),
-        },
-        'has_config': bot_yaml.exists(),
-        'config_files': config_files,
-        'data_count': get_data_file_count(),
-        'data_size': format_size(data_size),
-        'backup_location': str(BACKUP_DIR.absolute())
-    }
 
 def get_config_files() -> List[str]:
-    """获取配置文件列表"""
     files = []
     if CONFIG_DIR.exists():
         for f in CONFIG_DIR.glob('*.yaml'):
             files.append(f.name)
         for f in CONFIG_DIR.glob('*.yml'):
             files.append(f.name)
+    return sorted(files)
+
+
+def get_data_files() -> List[Path]:
+    files = []
+    data_root = PROJECT_ROOT / 'data'
+    if data_root.exists():
+        for f in data_root.rglob('*'):
+            if f.is_file() and '备份工具' not in str(f):
+                files.append(f)
     return files
 
-def get_data_file_count() -> int:
-    """获取数据文件数量"""
-    count = 0
-    if DATA_DIR.exists():
-        for f in DATA_DIR.rglob('*'):
-            if f.is_file() and 'backup_manager' not in str(f):
-                count += 1
-    return count
+
+def get_config_size() -> int:
+    total = 0
+    if CONFIG_DIR.exists():
+        for f in CONFIG_DIR.glob('*.yaml'):
+            total += f.stat().st_size
+        for f in CONFIG_DIR.glob('*.yml'):
+            total += f.stat().st_size
+    return total
+
+
+def get_data_size() -> int:
+    total = 0
+    data_root = PROJECT_ROOT / 'data'
+    if data_root.exists():
+        for f in data_root.rglob('*'):
+            if f.is_file() and '备份工具' not in str(f):
+                total += f.stat().st_size
+    return total
+
+
+def get_disk_usage() -> Dict[str, Any]:
+    try:
+        st = os.statvfs(str(DATA_DIR.parent))
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used = total - free
+        return {
+            'total': format_size(total),
+            'used': format_size(used),
+            'free': format_size(free),
+            'usage_percent': round((used / total) * 100, 1) if total > 0 else 0,
+        }
+    except Exception:
+        return {'total': '未知', 'used': '未知', 'free': '未知', 'usage_percent': 0}
+
+
+# ==================== 备份功能 ====================
+
+
+def generate_backup_info(include_config: bool = True, include_data: bool = True) -> Dict[str, Any]:
+    bot_config = {}
+    bot_yaml = CONFIG_DIR / 'bot.yaml'
+    if bot_yaml.exists() and include_config:
+        try:
+            import yaml
+            with open(bot_yaml, 'r', encoding='utf-8') as f:
+                bot_config = yaml.safe_load(f) or {}
+        except Exception as e:
+            log.warning(f"读取 bot.yaml 失败: {e}")
+
+    config_files = get_config_files() if include_config else []
+    config_size = get_config_size() if include_config else 0
+    data_files = get_data_files() if include_data else []
+    data_size = get_data_size() if include_data else 0
+
+    return {
+        'version': '1.5',
+        'created_at': datetime.now().isoformat(),
+        'created_at_readable': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'bot_config': {
+            'appid': bot_config.get('appid', ''),
+            'platform': bot_config.get('platform', ''),
+        } if include_config and bot_config else {},
+        'include_config': include_config,
+        'include_data': include_data,
+        'config_files': config_files,
+        'config_count': len(config_files),
+        'config_size': config_size,
+        'config_size_readable': format_size(config_size),
+        'data_count': len(data_files),
+        'data_size': data_size,
+        'data_size_readable': format_size(data_size),
+        'total_size_readable': format_size(config_size + data_size),
+        'backup_location': str(DATA_DIR),
+        'hostname': os.uname().nodename if hasattr(os, 'uname') else 'unknown'
+    }
+
 
 def generate_readme(info: Dict[str, Any]) -> str:
-    """生成 README.md 说明文件"""
     lines = [
-        '# ElainaBot 重要信息备份说明',
-        '',
+        '# 备份说明', '',
         f'**生成时间**: {info.get("created_at_readable", "未知")}',
-        '',
-        '---',
-        '',
-        '## 📦 备份内容',
-        '',
-        f'- **配置文件**: {len(info.get("config_files", []))} 个',
-        f'- **数据文件**: {info.get("data_count", 0)} 个',
-        f'- **数据大小**: {info.get("data_size", "0 B")}',
-        '',
-        '### 配置文件',
-        '',
+        f'**备份版本**: v{info.get("version", "unknown")}',
+        f'**主机名**: {info.get("hostname", "未知")}', '', '---', '',
+        '## 备份内容', '',
     ]
-    
-    config_files = info.get('config_files', [])
-    if config_files:
-        for f in config_files:
-            lines.append(f'- `{f}`')
+    if info.get('include_config'):
+        lines.append(f'- **配置文件**: {info.get("config_count", 0)} 个 ({info.get("config_size_readable", "0 B")})')
+        for f in info.get('config_files', []):
+            lines.append(f'  - `{f}`')
     else:
-        lines.append('> 暂无配置文件')
-    
+        lines.append('- **配置文件**: 未备份')
+    if info.get('include_data'):
+        lines.append(f'- **数据文件**: {info.get("data_count", 0)} 个 ({info.get("data_size_readable", "0 B")})')
+    else:
+        lines.append('- **数据文件**: 未备份')
     bot = info.get('bot_config', {})
     if bot.get('appid'):
-        lines.extend([
-            '',
-            '### 🤖 Bot 配置',
-            '',
-            f'- **AppID**: `{bot.get("appid", "")}`',
-            f'- **平台**: `{bot.get("platform", "未知")}`',
-            f'- **沙盒模式**: `{"是" if bot.get("sandbox") else "否"}`',
-        ])
-    
-    lines.extend([
-        '',
-        '---',
-        '',
-        '## 📥 恢复方法',
-        '',
-        '1. 安装 `backup_manager` 插件到新框架',
-        '2. 在 Web 面板进入「备份迁移」页面',
-        '3. 上传此 ZIP 文件',
-        '4. 点击「恢复备份」按钮',
-        '5. 框架将自动恢复所有配置和数据',
-        '',
-        '---',
-        '',
-        f'*备份工具: [elaina-backup-manager](https://github.com/yhkj-nb/elaina-backup-manager)*',
+        lines.extend(['', '## Bot 配置', f'- AppID: `{bot.get("appid", "")}`', f'- 平台: `{bot.get("platform", "未知")}`'])
+    lines.extend(['', '---', '', '## 恢复方法', '',
+        '1. 安装本插件到新框架', '2. 在 Web 面板进入「备份迁移」页面',
+        '3. 上传此 ZIP 文件', '4. 点击「恢复备份」按钮', '', '---', '',
+        f'*备份工具版本: v{info.get("version", "1.5")}*',
         f'*生成于 {info.get("created_at_readable", "未知")}*',
     ])
-    
     return '\n'.join(lines)
 
-def create_backup() -> Optional[str]:
-    """创建备份ZIP文件（包含 README.md 和 info.json）"""
+
+def create_backup(include_config: bool = True, include_data: bool = True) -> Optional[str]:
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"elaina_backup_{timestamp}.zip"
-    zip_path = BACKUP_DIR / filename
-    
-    # 生成备份信息
-    info = generate_backup_info()
+    filename = f"backup_{timestamp}.zip"
+    zip_path = DATA_DIR / filename
+    info = generate_backup_info(include_config, include_data)
     readme_content = generate_readme(info)
-    
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # 写入备份信息
-        zf.writestr('backup_info.json', json.dumps(info, ensure_ascii=False, indent=2))
-        zf.writestr('README.md', readme_content.encode('utf-8'))
-        
-        # 备份配置文件
-        if CONFIG_DIR.exists():
-            for f in CONFIG_DIR.glob('*.yaml'):
-                arcname = f"config/{f.name}"
-                zf.write(f, arcname)
-            for f in CONFIG_DIR.glob('*.yml'):
-                arcname = f"config/{f.name}"
-                zf.write(f, arcname)
-        
-        # 备份 data 目录（排除 backup_manager 自身）
-        if DATA_DIR.exists():
-            for f in DATA_DIR.rglob('*'):
-                if f.is_file():
-                    if 'backup_manager' in str(f):
-                        continue
-                    arcname = f"data/{f.relative_to(DATA_DIR)}"
-                    zf.write(f, arcname)
-    
-    log.info(f'✅ 备份创建成功: {filename} (存放于 {BACKUP_DIR})')
-    return filename
+
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('backup_info.json', json.dumps(info, ensure_ascii=False, indent=2))
+            zf.writestr('README.md', readme_content)
+            if include_config and CONFIG_DIR.exists():
+                for f in CONFIG_DIR.glob('*.yaml'):
+                    zf.write(f, f"config/{f.name}")
+                for f in CONFIG_DIR.glob('*.yml'):
+                    zf.write(f, f"config/{f.name}")
+            if include_data:
+                data_root = PROJECT_ROOT / 'data'
+                if data_root.exists():
+                    for f in data_root.rglob('*'):
+                        if f.is_file() and '备份工具' not in str(f):
+                            arcname = f"data/{f.relative_to(data_root)}"
+                            zf.write(f, arcname)
+        log.info(f'✅ 备份创建成功: {filename} ({format_size(zip_path.stat().st_size)})')
+        return filename
+    except Exception as e:
+        log.error(f'备份失败: {e}')
+        if zip_path.exists():
+            zip_path.unlink()
+        return None
+
+
+# ==================== 恢复功能 ====================
+
 
 def restore_backup(zip_path: Path) -> Dict[str, Any]:
-    """恢复备份"""
     result = {
-        'success': True,
-        'restored_configs': [],
-        'restored_data': [],
-        'errors': [],
-        'bot_config': {},
+        'success': False, 'restored_configs': [], 'restored_data': [],
+        'skipped_files': [], 'errors': [], 'backup_info': {},
     }
-    
+    if not zip_path.exists():
+        result['errors'].append(f"备份文件不存在: {zip_path}")
+        return result
+
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            # 读取备份信息
-            if 'backup_info.json' in zf.namelist():
+            bad_file = zf.testzip()
+            if bad_file:
+                result['errors'].append(f"ZIP 文件损坏: {bad_file}")
+                return result
+            try:
                 with zf.open('backup_info.json') as f:
-                    info = json.load(f)
-                    result['bot_config'] = info.get('bot_config', {})
-            
-            # 恢复 config
+                    result['backup_info'] = json.load(f)
+            except Exception:
+                pass
+
             for item in zf.namelist():
-                if item.startswith('config/') and not item.endswith('/'):
-                    rel_path = Path(item).relative_to('config')
-                    target_path = CONFIG_DIR / rel_path
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(item) as src:
-                        with open(target_path, 'wb') as dst:
-                            dst.write(src.read())
-                    result['restored_configs'].append(str(rel_path))
-            
-            # 恢复 data
-            for item in zf.namelist():
-                if item.startswith('data/') and not item.endswith('/'):
-                    rel_path = Path(item).relative_to('data')
-                    target_path = DATA_DIR / rel_path
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(item) as src:
-                        with open(target_path, 'wb') as dst:
-                            dst.write(src.read())
-                    result['restored_data'].append(str(rel_path))
-    
+                if item.endswith('/'):
+                    continue
+                parts = item.replace('\\', '/').split('/')
+                unsafe = False
+                for part in parts:
+                    if not part or '..' in part or part.startswith('/'):
+                        unsafe = True
+                        break
+                if unsafe:
+                    result['skipped_files'].append(item)
+                    result['errors'].append(f"跳过不安全的路径: {item}")
+                    continue
+
+                try:
+                    if item.startswith('config/'):
+                        rel_path = Path(item[len('config/'):])
+                        target_path = CONFIG_DIR / rel_path
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(item) as src:
+                            with open(target_path, 'wb') as dst:
+                                while True:
+                                    chunk = src.read(8192)
+                                    if not chunk:
+                                        break
+                                    dst.write(chunk)
+                        result['restored_configs'].append(str(rel_path))
+                    elif item.startswith('data/'):
+                        rel_path = Path(item[len('data/'):])
+                        target_path = PROJECT_ROOT / 'data' / rel_path
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(item) as src:
+                            with open(target_path, 'wb') as dst:
+                                while True:
+                                    chunk = src.read(8192)
+                                    if not chunk:
+                                        break
+                                    dst.write(chunk)
+                        result['restored_data'].append(str(rel_path))
+                except Exception as e:
+                    result['errors'].append(f"恢复 {item} 失败: {str(e)}")
+                    log.warning(f"恢复文件失败 {item}: {e}")
+
+            if result['restored_configs'] or result['restored_data']:
+                result['success'] = True
+                log.info(f'恢复成功: 配置={len(result["restored_configs"])}, 数据={len(result["restored_data"])}')
+            elif result['errors']:
+                result['success'] = False
+
+    except zipfile.BadZipFile:
+        result['errors'].append("无效的 ZIP 文件")
+        log.error("无效的 ZIP 文件")
     except Exception as e:
-        result['success'] = False
-        result['errors'].append(str(e))
-    
+        result['errors'].append(f"恢复过程出错: {str(e)}")
+        log.error(f"恢复失败: {e}")
     return result
 
+
 def parse_backup_info(zip_path: Path) -> Dict[str, Any]:
-    """解析备份信息（不恢复）"""
     info = {}
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
@@ -330,241 +318,311 @@ def parse_backup_info(zip_path: Path) -> Dict[str, Any]:
             elif 'README.md' in zf.namelist():
                 with zf.open('README.md') as f:
                     content = f.read().decode('utf-8')
-                    import re
-                    time_match = re.search(r'\*\*生成时间\*\*:\s*(.+)', content)
-                    if time_match:
-                        info['created_at_readable'] = time_match.group(1).strip()
-                    config_match = re.search(r'-\s*\*\*配置文件\*\*:\s*(\d+)', content)
-                    if config_match:
-                        info['config_count'] = int(config_match.group(1))
-                    data_match = re.search(r'-\s*\*\*数据文件\*\*:\s*(\d+)', content)
-                    if data_match:
-                        info['data_count'] = int(data_match.group(1))
-            
-            # 如果 info 为空，尝试从文件列表推断
-            if not info:
-                file_list = zf.namelist()
-                config_files = []
-                data_files = []
-                for f in file_list:
-                    if f.startswith('config/') and (f.endswith('.yaml') or f.endswith('.yml')):
-                        config_files.append(f.split('/')[-1])
-                    elif f.startswith('data/') and not f.endswith('/'):
-                        data_files.append(f)
-                
-                info['config_files'] = config_files
-                info['config_count'] = len(config_files)
-                info['data_count'] = len(data_files)
-                info['created_at_readable'] = datetime.fromtimestamp(
-                    os.path.getmtime(zip_path)
-                ).strftime('%Y-%m-%d %H:%M:%S')
+                    m = re.search(r'\*\*生成时间\*\*:\s*(.+)', content)
+                    if m:
+                        info['created_at_readable'] = m.group(1).strip()
+                    m = re.search(r'-\s*\*\*配置文件\*\*:\s*(\d+)', content)
+                    if m:
+                        info['config_count'] = int(m.group(1))
+                    m = re.search(r'-\s*\*\*数据文件\*\*:\s*(\d+)', content)
+                    if m:
+                        info['data_count'] = int(m.group(1))
+            else:
+                info['warning'] = '无法识别的备份文件格式'
     except Exception as e:
         log.error(f'解析备份信息失败: {e}')
-        info['created_at_readable'] = '未知'
         info['error'] = str(e)
-    
     return info
 
-def delete_backup_file(filename: str) -> bool:
-    """删除备份文件"""
-    file_path = BACKUP_DIR / filename
-    if file_path.exists() and file_path.is_file():
+
+# ==================== 备份列表管理 ====================
+
+
+def get_backups_list() -> List[Dict[str, Any]]:
+    backups = []
+    if not DATA_DIR.exists():
+        return backups
+    for f in sorted(DATA_DIR.glob('backup_*.zip'), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            stat = f.stat()
+            info = parse_backup_info(f)
+            backups.append({
+                'filename': f.name,
+                'size': format_size(stat.st_size),
+                'size_bytes': stat.st_size,
+                'created_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                'modified_at': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                'info': info,
+            })
+        except Exception:
+            continue
+    return backups
+
+
+def delete_backup_file(filename: str) -> Dict[str, Any]:
+    if not filename or '..' in filename or '/' in filename or '\\' in filename:
+        return {'success': False, 'error': '非法文件名'}
+    file_path = DATA_DIR / filename
+    if not file_path.exists():
+        return {'success': False, 'error': '文件不存在'}
+    if not file_path.is_file():
+        return {'success': False, 'error': '不是有效文件'}
+    try:
         file_path.unlink()
-        log.info(f'🗑️ 已删除备份: {filename}')
-        return True
-    return False
+        log.info(f'已删除备份: {filename}')
+        return {'success': True, 'message': f'已删除 {filename}'}
+    except PermissionError:
+        log.error(f'权限不足，无法删除: {filename}')
+        return {'success': False, 'error': '权限不足'}
+    except Exception as e:
+        log.error(f'删除失败: {e}')
+        return {'success': False, 'error': str(e)}
+
 
 # ==================== Web 路由 ====================
+# ⚠️ 框架路由是精确匹配 (METHOD, path)，不支持路径参数 {param}
+# 所有需要传文件名的操作都用 query 参数 ?fn=xxx
 
-@register_route('GET', '/api/ext/backup_manager', auth=False)
+PAGE_PATH = '/api/ext/backup_manager'
+STATS_PATH = '/api/ext/backup_manager/stats'
+BACKUP_CREATE_PATH = '/api/ext/backup_manager/backup'
+UPLOAD_PATH = '/api/ext/backup_manager/upload'
+RESTORE_PATH = '/api/ext/backup_manager/restore'
+BACKUPS_LIST_PATH = '/api/ext/backup_manager/backups'
+DELETE_PATH = '/api/ext/backup_manager/delete'
+DOWNLOAD_PATH = '/api/ext/backup_manager/download'
+DISK_USAGE_PATH = '/api/ext/backup_manager/disk_usage'
+
+
+@register_route('GET', PAGE_PATH, auth=False)
 async def serve_page(request):
-    """提供 HTML 页面"""
-    html = get_html_content()
-    return web.Response(text=html, content_type='text/html; charset=utf-8')
+    html_path = PLUGIN_DIR / 'panel.html'
+    if html_path.exists():
+        with open(html_path, 'r', encoding='utf-8') as f:
+            return web.Response(text=f.read(), content_type='text/html; charset=utf-8')
+    return web.Response(text='<p>页面文件不存在</p>', content_type='text/html; charset=utf-8')
 
-@register_route('GET', '/api/ext/backup_manager/backups', auth=False)
-async def api_backups(request):
-    """获取备份列表"""
-    return web.json_response({'backups': get_backups_list()})
 
-@register_route('GET', '/api/ext/backup_manager/stats', auth=False)
+@register_route('GET', STATS_PATH, auth=False)
 async def api_stats(request):
-    """获取统计信息"""
-    backups = get_backups_list()
-    total_size = sum(b.get('size_bytes', 0) for b in backups)
     config_files = get_config_files()
-    data_count = get_data_file_count()
+    config_size = get_config_size()
+    data_files = get_data_files()
+    data_size = get_data_size()
+    backup_count = len(list(DATA_DIR.glob('backup_*.zip')))
+    disk_usage = get_disk_usage()
+
     return web.json_response({
-        'backup_count': len(backups),
-        'backup_size': format_size(total_size),
-        'backup_location': str(BACKUP_DIR.absolute()),
+        'backup_location': str(DATA_DIR),
         'config_count': len(config_files),
         'config_files': config_files,
-        'data_count': data_count,
+        'config_size': config_size,
+        'config_size_readable': format_size(config_size),
+        'data_count': len(data_files),
+        'data_size': data_size,
+        'data_size_readable': format_size(data_size),
+        'backup_count': backup_count,
+        'disk_usage': disk_usage,
     })
 
-@register_route('POST', '/api/ext/backup_manager/backup', auth=False)
-async def api_backup(request):
-    """执行备份"""
+
+@register_route('POST', BACKUP_CREATE_PATH, auth=False)
+async def api_create_backup(request):
     try:
-        filename = create_backup()
+        data = await request.json() if request.can_read_body else {}
+        include_config = data.get('include_config', True)
+        include_data = data.get('include_data', True)
+        filename = create_backup(include_config, include_data)
         if filename:
             return web.json_response({'success': True, 'filename': filename})
-        return web.json_response({'success': False, 'error': '备份失败'})
+        return web.json_response({'success': False, 'error': '备份创建失败'})
     except Exception as e:
         log.error(f'备份失败: {e}')
         return web.json_response({'success': False, 'error': str(e)})
 
-@register_route('DELETE', '/api/ext/backup_manager/delete/{filename}', auth=False)
-async def api_delete_backup(request):
-    """删除备份文件"""
-    filename = request.match_info.get('filename')
-    if not filename:
-        return web.json_response({'success': False, 'error': '缺少文件名'})
-    if '..' in filename or '/' in filename:
-        return web.json_response({'success': False, 'error': '非法文件名'})
-    if delete_backup_file(filename):
-        return web.json_response({'success': True})
-    return web.json_response({'success': False, 'error': '文件不存在'})
 
-@register_route('GET', '/api/ext/backup_manager/download/{filename}', auth=False)
-async def api_download_backup(request):
-    """下载备份文件"""
-    filename = request.match_info.get('filename')
-    if not filename:
-        return web.json_response({'success': False, 'error': '缺少文件名'})
-    
-    if '..' in filename or '/' in filename:
-        return web.json_response({'success': False, 'error': '非法文件名'})
-    
-    if not filename.endswith('.zip'):
-        return web.json_response({'success': False, 'error': '仅支持 ZIP 文件'})
-    
-    file_path = BACKUP_DIR / filename
-    if not file_path.exists():
-        return web.json_response({'success': False, 'error': f'文件不存在: {filename}'})
-    
-    return web.FileResponse(
-        path=str(file_path),
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"',
-            'Content-Type': 'application/zip'
-        }
-    )
-
-@register_route('POST', '/api/ext/backup_manager/upload', auth=False)
-async def api_upload_backup(request: Request):
-    """上传并解析备份文件"""
+@register_route('POST', UPLOAD_PATH, auth=False)
+async def api_upload_backup(request):
     try:
-        content_length = request.headers.get('Content-Length')
-        if content_length:
-            size_mb = int(content_length) / (1024 * 1024)
-            if size_mb > 500:
-                return web.json_response({
-                    'success': False, 
-                    'error': f'文件过大 ({size_mb:.1f}MB)，请上传小于 500MB 的文件'
-                })
-        
-        data = await request.post()
-        if 'file' not in data:
-            return web.json_response({'success': False, 'error': '请选择文件'})
-        
-        file_data = data['file']
-        if not file_data.filename.endswith('.zip'):
+        reader = await request.multipart()
+        file_data = None
+        filename = 'unknown.zip'
+        async for field in reader:
+            if field.name == 'file' and field.filename:
+                file_data = await field.read(decode=False)
+                filename = field.filename
+                break
+
+        if not file_data:
+            return web.json_response({'success': False, 'error': '未找到上传文件'})
+        if not filename.lower().endswith('.zip'):
             return web.json_response({'success': False, 'error': '仅支持 ZIP 文件'})
-        
-        content = file_data.file.read()
-        if len(content) == 0:
+        if len(file_data) == 0:
             return web.json_response({'success': False, 'error': '文件为空'})
-        
-        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-        
+        if len(file_data) > 500 * 1024 * 1024:
+            return web.json_response({'success': False, 'error': '文件过大，请上传小于 500MB 的文件'})
+
+        tmp_dir = DATA_DIR / 'temp'
+        tmp_dir.mkdir(exist_ok=True)
+        tmp_path = tmp_dir / f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        tmp_path.write_bytes(file_data)
+
         try:
             info = parse_backup_info(tmp_path)
-            size = tmp_path.stat().st_size
-            info['file_size'] = format_size(size)
-            info['file_size_bytes'] = size
-            
+            info['file_size'] = format_size(tmp_path.stat().st_size)
+            info['original_filename'] = filename
             return web.json_response({
                 'success': True,
-                'filename': file_data.filename,
-                'size': format_size(size),
+                'filename': filename,
+                'size': info['file_size'],
                 'info': info,
+                'temp_path': str(tmp_path),
             })
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-                
+        except Exception as e:
+            log.error(f'解析上传文件失败: {e}')
+            return web.json_response({'success': False, 'error': f'解析失败: {str(e)}'})
+
     except Exception as e:
         log.error(f'上传失败: {e}')
         return web.json_response({'success': False, 'error': str(e)})
 
-@register_route('POST', '/api/ext/backup_manager/restore', auth=False)
-async def api_restore_backup(request: Request):
-    """恢复备份"""
+
+@register_route('POST', RESTORE_PATH, auth=False)
+async def api_restore_backup(request):
     try:
-        data = await request.post()
-        if 'file' not in data:
-            return web.json_response({'success': False, 'error': '请选择文件'})
-        
-        file_data = data['file']
-        if not file_data.filename.endswith('.zip'):
-            return web.json_response({'success': False, 'error': '仅支持 ZIP 文件'})
-        
-        content = file_data.file.read()
-        if len(content) == 0:
+        reader = await request.multipart()
+        file_data = None
+        async for field in reader:
+            if field.name == 'file' and field.filename:
+                file_data = await field.read(decode=False)
+                break
+
+        if not file_data:
+            return web.json_response({'success': False, 'error': '未找到上传文件'})
+        if len(file_data) == 0:
             return web.json_response({'success': False, 'error': '文件为空'})
-        
-        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-        
+
+        reader = await request.multipart()
+        temp_path_str = None
+        async for field in reader:
+            if field.name == 'temp_path':
+                val = await field.read(decode=False)
+                if val:
+                    temp_path_str = val.decode('utf-8').strip()
+                break
+
+        if temp_path_str and Path(temp_path_str).exists():
+            zip_path = Path(temp_path_str)
+        else:
+            tmp_dir = DATA_DIR / 'temp'
+            tmp_dir.mkdir(exist_ok=True)
+            zip_path = tmp_dir / f"restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            zip_path.write_bytes(file_data)
+
         try:
-            result = restore_backup(tmp_path)
+            result = restore_backup(zip_path)
             if result['success']:
-                log.info(f'恢复成功: {result["restored_configs"]}')
                 return web.json_response({
-                    'success': True,
-                    'message': '恢复成功！',
-                    'result': result
+                    'success': True, 'message': '恢复成功！', 'result': result,
                 })
             else:
                 return web.json_response({
-                    'success': False,
-                    'error': '恢复失败',
-                    'errors': result.get('errors', [])
+                    'success': False, 'error': '恢复失败', 'errors': result.get('errors', []),
                 })
         finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-                
+            if not temp_path_str or not Path(temp_path_str).exists():
+                try:
+                    zip_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
     except Exception as e:
         log.error(f'恢复失败: {e}')
         return web.json_response({'success': False, 'error': str(e)})
 
+
+@register_route('GET', BACKUPS_LIST_PATH, auth=False)
+async def api_backups(request):
+    backups = get_backups_list()
+    return web.json_response({'success': True, 'backups': backups, 'count': len(backups)})
+
+
+@register_route('DELETE', DELETE_PATH, auth=False)
+async def api_delete_backup(request):
+    filename = unquote(request.query.get('fn', ''))
+    if not filename:
+        return web.json_response({'success': False, 'error': '缺少文件名'})
+    result = delete_backup_file(filename)
+    if result['success']:
+        return web.json_response({'success': True, 'message': result.get('message', '已删除')})
+    else:
+        return web.json_response({'success': False, 'error': result.get('error', '删除失败')})
+
+
+@register_route('GET', DOWNLOAD_PATH, auth=False)
+async def api_download_backup(request):
+    filename = unquote(request.query.get('fn', ''))
+    if not filename:
+        return web.json_response({'success': False, 'error': '缺少文件名'})
+    if '..' in filename or filename.endswith('/'):
+        return web.json_response({'success': False, 'error': '非法文件名'})
+    if not filename.endswith('.zip'):
+        return web.json_response({'success': False, 'error': '仅支持 ZIP 文件'})
+
+    file_path = DATA_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        return web.json_response({'success': False, 'error': f'文件不存在: {filename}'})
+
+    file_size = file_path.stat().st_size
+    response = web.StreamResponse(
+        headers={
+            'Content-Type': 'application/zip',
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(file_size),
+            'Cache-Control': 'no-cache',
+        }
+    )
+    await response.prepare(request)
+    with open(file_path, 'rb') as f:
+        while True:
+            chunk = f.read(8192)
+            if not chunk:
+                break
+            await response.write(chunk)
+    log.info(f'⬇️ 下载完成: {filename} ({format_size(file_size)})')
+    return response
+
+
+@register_route('GET', DISK_USAGE_PATH, auth=False)
+async def api_disk_usage(request):
+    usage = get_disk_usage()
+    return web.json_response({'success': True, 'disk_usage': usage})
+
+
 # ==================== 生命周期 ====================
+
 
 @on_load
 async def init():
-    """插件加载时注册 Web 页面"""
-    log.info('🔧 重要信息备份与迁移工具已加载')
-    log.info('📦 仓库地址: https://github.com/yhkj-nb/elaina-backup-manager')
-    log.info(f'📁 备份文件存放目录: {BACKUP_DIR}')
-    
-    html_content = get_html_content()
+    log.info('🔧 重要信息备份与迁移工具 v1.5 已加载')
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    html_path = PLUGIN_DIR / 'panel.html'
+    html_content = ''
+    if html_path.exists():
+        with open(html_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
     register_page(
         key='backup_manager',
         label='🔧 备份迁移',
         source='plugin',
-        source_name='backup_manager',
+        source_name='备份工具',
         html=html_content,
         icon='settings',
     )
+    log.info('✅ 备份工具面板已注册')
+
 
 @on_unload
 def cleanup():
-    """插件卸载时清理"""
     unregister_page('backup_manager')
     log.info('🔧 重要信息备份与迁移工具已卸载')

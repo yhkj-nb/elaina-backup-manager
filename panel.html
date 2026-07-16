@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>备份与迁移工具 v1.5</title>
+<style>
+  :root{
+    --bg:#ffffff; --bg2:#f7f8fa; --bg3:#eef1f6; --bg-float:#ffffff;
+    --text:#1a1a2e; --text2:#4a5568; --text3:#8896ab;
+    --border:#dde3ed; --border2:rgba(0,0,0,.06);
+    --accent:#5865f2; --accent-hover:#4752c4; --accent-light:#7289da;
+    --success:#10b981; --danger:#ef4444; --warning:#f59e0b; --info:#06b6d4;
+    --radius:10px; --radius-sm:7px; --radius-lg:14px;
+    --sidebar-bg:#f5f6f8;
+    --accent-soft:#eef0fe; --accent-line:#c5cbf7;
+    --success-soft:#e6f9f1; --danger-soft:#fde8e8; --warning-soft:#fef4e0;
+    --shadow:0 1px 3px rgba(0,0,0,.06);
+    --shadow-md:0 4px 12px rgba(0,0,0,.08);
+    --shadow-lg:0 10px 28px rgba(0,0,0,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg2);color:var(--text);font-size:13px;line-height:1.5;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(100,116,139,.25);border-radius:3px}
+
+  .eb-page{height:100vh;display:flex;overflow:hidden}
+  .eb-sidebar{width:160px;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .2s ease}
+  .eb-sidebar.collapsed{width:48px}
+  .eb-sidebar.collapsed .nav-label,.eb-sidebar.collapsed .side-title,.eb-sidebar.collapsed .nav-badge,.eb-sidebar.collapsed .collapse-label{display:none}
+  .eb-sidebar.collapsed .nav-item{justify-content:center;padding:9px 0}
+  .eb-sidebar.collapsed .side-brand{justify-content:center}
+  .eb-sidebar.collapsed .side-brand .logo{margin:0}
+
+  .side-header{padding:10px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+  .side-brand{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+  .logo{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--accent),var(--accent-light));color:#fff;flex-shrink:0}
+  .logo svg{width:15px;height:15px}
+  .side-title{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .eb-nav{flex:1;overflow-y:auto;padding:6px}
+  .nav-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:7px;cursor:pointer;transition:all .12s;color:var(--text2);font-size:12px;margin-bottom:1px;font-weight:500;user-select:none}
+  .nav-item:hover{background:var(--accent-soft);color:var(--text)}
+  .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600;border:1px solid var(--accent-line)}
+  .nav-item svg{width:16px;height:16px;flex-shrink:0;stroke-width:1.8}
+  .nav-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nav-badge{font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:20px;padding:1px 6px;min-width:18px;text-align:center;line-height:16px;border:1px solid var(--accent-line)}
+  .nav-divider{height:1px;background:var(--border);margin:5px 8px}
+
+  .side-footer{padding:8px;border-top:1px solid var(--border)}
+  .collapse-btn{width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;color:var(--text3);font-size:11px}
+  .collapse-btn:hover{background:var(--bg3);color:var(--text2)}
+  .collapse-btn svg{width:13px;height:13px;transition:transform .2s}
+  .eb-sidebar.collapsed .collapse-btn svg{transform:rotate(180deg)}
+
+  .eb-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .eb-header{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg)}
+  .eb-header h1{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .header-right{display:flex;gap:6px;align-items:center}
+  .eb-content{flex:1;overflow-y:auto;padding:16px 20px}
+
+  .btn{padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);color:var(--text);font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .12s;text-decoration:none;white-space:nowrap}
+  .btn:hover:not(:disabled){border-color:var(--accent-line);background:var(--bg3);color:var(--text)}
+  .btn:active:not(:disabled){transform:translateY(1px)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn-pri:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover)}
+  .btn-success{background:var(--success-soft);color:#059669;border:1px solid #a7f3d0}
+  .btn-success:hover:not(:disabled){background:#d1fae5;color:#047857}
+  .btn-danger{background:#fde8e8;color:#dc2626;border:1px solid #f5c6c6}
+  .btn-danger:hover:not(:disabled){background:#fbd5d5;color:#b91c1c}
+  .btn-sm{padding:4px 8px;font-size:11px}
+  .btn-xs{padding:3px 6px;font-size:10px}
+  .btn svg{width:14px;height:14px}
+
+  .page{display:none}
+  .page.on{display:block}
+
+  .card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px}
+  .card-title{font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);margin-bottom:8px}
+  .toggle-info{flex:1;min-width:0}
+  .toggle-title{font-weight:600;font-size:13px;color:var(--text)}
+  .toggle-desc{font-size:11px;color:var(--text3);line-height:1.4;margin-top:2px}
+  .toggle-switch{position:relative;width:36px;height:20px;cursor:pointer;flex-shrink:0}
+  .toggle-switch input{opacity:0;width:0;height:0}
+  .toggle-track{position:absolute;inset:0;background:#cbd5e1;border-radius:10px;transition:background .2s}
+  .toggle-track::after{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+  .toggle-switch input:checked+.toggle-track{background:var(--accent)}
+  .toggle-switch input:checked+.toggle-track::after{transform:translateX(16px)}
+
+  .field{margin-bottom:10px}
+  .field label{display:block;font-weight:600;font-size:12px;margin-bottom:3px;color:var(--text)}
+  .field .hint{font-size:11px;color:var(--text3);margin-top:3px;line-height:1.4}
+  .field .hint code{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:0 4px;font-size:11px}
+  input[type=text],input[type=number],textarea,select{
+    background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);
+    color:var(--text);font-size:12px;padding:7px 10px;outline:none;font-family:inherit;width:100%}
+  input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  textarea{min-height:80px;resize:vertical;line-height:1.5;font-size:12px}
+  input[type=number]{max-width:120px}
+  .input-sm{max-width:120px}
+  .input-inline{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .input-inline .muted{font-size:11px;color:var(--text3)}
+
+  table{width:100%;border-collapse:collapse;background:var(--bg);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--border)}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border2);font-size:12px;vertical-align:top}
+  th{background:var(--bg3);color:var(--text2);font-weight:700;position:sticky;top:0;font-size:11px}
+  td.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;word-break:break-all}
+  tr:hover td{background:#f0f1fe}
+  .pill{font-size:10px;font-weight:700;border-radius:20px;padding:1px 7px;display:inline-block}
+  .pill.ok{background:var(--success-soft);color:#059669}
+  .pill.err{background:var(--danger-soft);color:#dc2626}
+  .resp{max-width:320px;white-space:pre-wrap;word-break:break-all}
+
+  .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .muted{color:var(--text3);font-size:11px}
+  .empty{text-align:center;padding:28px 16px;color:var(--text3);font-size:12px}
+  .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:10px}
+
+  .notice{padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:10px;line-height:1.5}
+  .notice.info{background:var(--accent-soft);color:#4752c4;border:1px solid var(--accent-line)}
+  .notice.warn{background:var(--warning-soft);color:#b45309;border:1px solid #f5d89a}
+
+  .toast-container {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .toast {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 280px;
+    max-width: 500px;
+    animation: slideDown 0.25s ease;
+    pointer-events: auto;
+    border: 1px solid var(--border);
+  }
+  .toast-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .toast-success .toast-icon { color: var(--success); }
+  .toast-error .toast-icon { color: var(--danger); }
+  .toast-info .toast-icon { color: var(--accent); }
+  .toast-message {
+    font-size: 14px;
+    color: var(--text);
+  }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideUp {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-20px); }
+  }
+
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s;
+  }
+  .modal-overlay.active {
+    opacity: 1;
+    visibility: visible;
+  }
+  .modal-box {
+    background: var(--bg);
+    border-radius: var(--radius-lg);
+    width: 420px;
+    max-width: 92%;
+    padding: 24px;
+    box-shadow: var(--shadow-lg);
+    transform: scale(0.95);
+    transition: transform 0.2s;
+    border: 1px solid var(--border);
+  }
+  .modal-overlay.active .modal-box {
+    transform: scale(1);
+  }
+  .modal-header {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+  }
+  .modal-header .modal-icon {
+    width: 22px; height: 22px;
+  }
+  .modal-body {
+    font-size: 14px;
+    color: var(--text2);
+    line-height: 1.6;
+    margin-bottom: 20px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .modal-footer {
+    text-align: right;
+  }
+  .modal-btn {
+    padding: 8px 24px;
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--accent);
+    color: #fff;
+    transition: all 0.2s;
+  }
+  .modal-btn:hover {
+    background: var(--accent-hover);
+  }
+
+  .opt-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+  .opt-item:last-child{border-bottom:none}
+  .opt-item input[type="checkbox"]{width:18px;height:18px;accent-color:var(--accent);margin-top:2px;cursor:pointer}
+  .opt-item label{font-size:14px;cursor:pointer;flex:1}
+  .opt-item .desc{font-size:12px;color:var(--text3);margin-top:2px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .info-row{display:flex;justify-content:space-between;padding:10px 14px;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:13px}
+  .info-row .label{color:var(--text3)}
+  .info-row .value{color:var(--text);font-weight:600}
+  .badge{display:inline-block;padding:2px 10px;border-radius:6px;font-size:11px;font-weight:600}
+  .badge-blue{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line)}
+  .badge-green{background:var(--success-soft);color:#059669;border:1px solid #a7f3d0}
+  .backup-list{max-height:400px;overflow-y:auto}
+  .backup-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border2);gap:12px;transition:background .15s}
+  .backup-item:hover{background:#f8fafc}
+  .backup-item:last-child{border-bottom:none}
+  .backup-item .left{flex:1;min-width:0}
+  .backup-item .name{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .backup-item .meta{font-size:12px;color:var(--text3);margin-top:3px;display:flex;gap:14px;flex-wrap:wrap}
+  .backup-item .actions{display:flex;gap:6px;flex-shrink:0}
+  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:36px 20px;text-align:center;cursor:pointer;transition:all .3s;background:var(--bg)}
+  .upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:var(--accent-soft)}
+  .upload-zone .upload-icon{font-size:44px;color:var(--accent-light);margin-bottom:10px;opacity:.6}
+  .upload-zone .upload-text{font-size:15px;font-weight:600;color:var(--text)}
+  .upload-zone .upload-hint{font-size:12px;color:var(--text3);margin-top:6px}
+  .upload-zone input{display:none}
+  .upload-progress{margin-top:14px;display:none}
+  .upload-progress .bar{background:var(--bg3);border:1px solid var(--border);border-radius:8px;height:6px;overflow:hidden;margin:8px 0}
+  .upload-progress .bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:8px;transition:width .3s;width:0%}
+  .upload-progress .status{font-size:13px;color:var(--text2)}
+  .preview-box{background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:var(--radius);padding:18px 20px;margin-top:16px;display:none}
+  .preview-box.active{display:block}
+  .preview-box h4{font-size:14px;margin-bottom:12px;color:var(--accent)}
+  .preview-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}
+  .preview-item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.04);font-size:13px}
+  .preview-item .label{color:var(--text3)}
+  .preview-item .value{color:var(--text);font-weight:600}
+  .preview-actions{margin-top:16px;display:flex;align-items:center;gap:10px}
+
+  @media(max-width:768px){
+    .eb-sidebar{width:48px}
+    .side-title,.nav-label,.nav-badge,.collapse-label{display:none}
+    .nav-item{justify-content:center;padding:9px 0}
+    .eb-content{padding:12px}
+    .grid-2,.grid-3{grid-template-columns:1fr}
+    .preview-grid{grid-template-columns:1fr}
+    .info-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="eb-page">
+  <div class="eb-sidebar" id="eb-sidebar">
+    <div class="side-header">
+      <div class="side-brand">
+        <span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M9 3v18"/><path d="M3 9h18"/></svg></span>
+        <span class="side-title">备份工具</span>
+      </div>
+    </div>
+    <div class="eb-nav">
+      <div class="nav-item active" data-page="dashboard" onclick="go('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span class="nav-label">总览面板</span>
+      </div>
+      <div class="nav-item" data-page="create" onclick="go('create')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span class="nav-label">新建备份</span>
+      </div>
+      <div class="nav-item" data-page="import" onclick="go('import')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="nav-label">导入备份</span>
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-item" data-page="history" onclick="go('history')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="nav-label">备份历史</span>
+        <span class="nav-badge" id="b-backups">0</span>
+      </div>
+    </div>
+    <div class="side-footer">
+      <button class="collapse-btn" onclick="document.getElementById('eb-sidebar').classList.toggle('collapsed')" title="收起">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+        <span class="collapse-label">收起</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="eb-main">
+    <div class="eb-header">
+      <h1 id="page-title">总览面板</h1>
+      <div class="header-right">
+        <button class="btn btn-sm" onclick="loadStatus()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>
+      </div>
+    </div>
+    <div class="eb-content">
+
+      <div class="page on" id="page-dashboard">
+        <div class="notice info" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <svg style="width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>备份存放位置:</span>
+          <code id="locPath" style="background:var(--bg3);padding:3px 10px;border-radius:4px;font-size:11px;font-family:monospace;flex:1;min-width:200px;word-break:break-all">加载中...</code>
+          <button class="btn btn-xs" onclick="copyPath()"><svg style="width:12px;height:12px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制</button>
+        </div>
+        <div class="grid-3" style="margin-bottom:16px">
+          <div class="card" style="margin-bottom:0;text-align:center">
+            <div style="font-size:28px;font-weight:700;color:var(--accent)" id="statBackups">0</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">备份数量</div>
+          </div>
+          <div class="card" style="margin-bottom:0;text-align:center">
+            <div style="font-size:28px;font-weight:700;color:var(--success)" id="statConfigs">0</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">配置文件</div>
+          </div>
+          <div class="card" style="margin-bottom:0;text-align:center">
+            <div style="font-size:28px;font-weight:700;color:var(--warning)" id="statData">0</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">数据文件</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">磁盘使用情况</div>
+          <div class="grid-2" style="gap:10px">
+            <div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2)">
+              <div style="font-size:11px;color:var(--text3)">已用空间</div>
+              <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:4px" id="diskUsed">-</div>
+            </div>
+            <div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2)">
+              <div style="font-size:11px;color:var(--text3)">可用空间</div>
+              <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:4px" id="diskFree">-</div>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px"><span>使用率</span><span id="diskPercent">0%</span></div>
+            <div style="background:var(--bg3);border-radius:8px;height:8px;overflow:hidden;border:1px solid var(--border)">
+              <div id="diskBar" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:8px;transition:width .5s;width:0%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">快捷操作</div>
+          <div class="bar">
+            <button class="btn btn-pri" onclick="go('create')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建备份</button>
+            <button class="btn" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导入备份</button>
+            <button class="btn" onclick="refreshHistory()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新列表</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-create">
+        <div class="card">
+          <div class="card-title">备份选项</div>
+          <div class="opt-item">
+            <input type="checkbox" id="optConfig" checked>
+            <label for="optConfig"><div><svg style="width:16px;height:16px;color:var(--accent);vertical-align:middle;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>配置文件</div><div class="desc">config/ 目录下的所有 YAML 配置</div></label>
+          </div>
+          <div class="opt-item">
+            <input type="checkbox" id="optData" checked>
+            <label for="optData"><div><svg style="width:16px;height:16px;color:var(--success);vertical-align:middle;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>数据文件</div><div class="desc">data/ 目录下的所有插件数据</div></label>
+          </div>
+          <div style="margin-top:12px;padding:10px;background:var(--bg2);border-radius:var(--radius-sm);font-size:13px;color:var(--text2);border:1px solid var(--border)">
+            <span id="optConfigInfo">加载中...</span> &nbsp;·&nbsp; <span id="optDataInfo">加载中...</span>
+          </div>
+        </div>
+        <div class="bar" style="margin-top:12px">
+          <button class="btn btn-pri" onclick="doBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>开始备份</button>
+        </div>
+      </div>
+
+      <div class="page" id="page-import">
+        <div class="card">
+          <div class="card-title">上传备份文件</div>
+          <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+            <div class="upload-icon"><svg style="width:52px;height:52px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+            <div class="upload-text">点击或拖拽上传备份文件</div>
+            <div class="upload-hint">支持 .zip 格式，最大 500MB</div>
+            <input type="file" id="fileInput" accept=".zip" onchange="handleUpload(this.files[0])">
+          </div>
+          <div class="upload-progress" id="uploadProgress">
+            <div class="status" id="uploadStatus"><svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;animation:spin 1s linear infinite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg> 正在上传...</div>
+            <div class="bar"><div class="bar-fill" id="uploadBar"></div></div>
+          </div>
+          <div class="preview-box" id="previewBox">
+            <h4><svg style="width:16px;height:16px;vertical-align:middle;margin-right:6px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> 备份详情</h4>
+            <div class="preview-grid" id="previewGrid"></div>
+            <div class="preview-actions">
+              <button class="btn btn-pri btn-sm" onclick="openRestoreModal()"><svg style="width:14px;height:14px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>确认恢复</button>
+              <span style="font-size:12px;color:var(--text3)">恢复前请确认备份来源可信</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-history">
+        <div class="card">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>备份列表</span>
+            <span class="muted" id="listCount">0 个</span>
+          </div>
+          <div class="backup-list" id="backupList">
+            <div class="empty"><svg style="width:42px;height:42px;opacity:.3;margin-bottom:8px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><div>暂无备份</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <svg id="modalIcon" class="modal-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"></svg>
+      <span id="modalTitle">标题</span>
+    </div>
+    <div class="modal-body" id="modalBody">内容</div>
+    <div class="modal-footer">
+      <button class="modal-btn" onclick="closeModal()">确 定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toastContainer" class="toast-container"></div>
+
+<style>
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+
+<script>
+function $(id){ return document.getElementById(id); }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  let iconSvg = '';
+  if(type === 'success') {
+    iconSvg = '<svg class="toast-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+  } else if(type === 'error') {
+    iconSvg = '<svg class="toast-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+  } else {
+    iconSvg = '<svg class="toast-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+  }
+  toast.innerHTML = `${iconSvg}<span class="toast-message">${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideUp 0.3s ease forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 2500);
+}
+
+function openModal(title, content, type = 'info') {
+  const overlay = document.getElementById('modalOverlay');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const iconEl = document.getElementById('modalIcon');
+  titleEl.textContent = title;
+  bodyEl.innerHTML = content;
+  let iconColor = '#5865f2';
+  let iconPath = '';
+  if(type === 'success') {
+    iconColor = '#10b981';
+    iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />';
+  } else if(type === 'error') {
+    iconColor = '#ef4444';
+    iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />';
+  } else {
+    iconPath = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />';
+  }
+  iconEl.innerHTML = iconPath;
+  iconEl.style.color = iconColor;
+  overlay.classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if(e.target === this) closeModal();
+});
+
+const TITLES = {dashboard:'总览面板', create:'新建备份', import:'导入备份', history:'备份历史'};
+let PAGE = 'dashboard';
+
+function go(page){
+  PAGE = page;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  const el = document.getElementById('page-'+page);
+  if(el) el.classList.add('on');
+  document.getElementById('page-title').textContent = TITLES[page] || page;
+  if(page === 'dashboard') loadStatus();
+  if(page === 'create') loadCreateOpts();
+  if(page === 'history') refreshHistory();
+}
+
+const API = '/api/ext/backup_manager';
+function fmtSize(bytes){
+  if(!bytes || bytes===0) return '0 B';
+  const u=['B','KB','MB','GB']; let i=0, s=parseFloat(bytes);
+  while(s>=1024 && i<u.length-1){s/=1024; i++}
+  return s.toFixed(1)+' '+u[i];
+}
+
+async function loadStatus(){
+  try{
+    const [backups, stats] = await Promise.all([
+      fetch(API+'/backups').then(r=>r.json()),
+      fetch(API+'/stats').then(r=>r.json())
+    ]);
+    document.getElementById('statBackups').textContent = stats.backup_count || 0;
+    document.getElementById('statConfigs').textContent = stats.config_count || 0;
+    document.getElementById('statData').textContent = stats.data_count || 0;
+    document.getElementById('locPath').textContent = stats.backup_location || '未知';
+    document.getElementById('b-backups').textContent = stats.backup_count || 0;
+    const du = stats.disk_usage || {};
+    document.getElementById('diskUsed').textContent = du.used || '-';
+    document.getElementById('diskFree').textContent = du.free || '-';
+    const pct = du.usage_percent || 0;
+    document.getElementById('diskPercent').textContent = pct + '%';
+    document.getElementById('diskBar').style.width = pct + '%';
+    const list = document.getElementById('backupList');
+    document.getElementById('listCount').textContent = (backups.backups||[]).length + ' 个';
+    if(!backups.backups || backups.backups.length === 0){
+      list.innerHTML = '<div class="empty"><svg style="width:42px;height:42px;opacity:.3;margin-bottom:8px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><div>暂无备份</div></div>';
+      return;
+    }
+    list.innerHTML = backups.backups.map(b => `
+      <div class="backup-item">
+        <div class="left">
+          <div class="name">
+            <svg style="width:14px;height:14px;color:var(--accent);opacity:.7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            ${esc(b.filename)}
+            ${b.info?.config_count ? `<span class="badge badge-blue">${b.info.config_count} 配置</span>` : ''}
+            ${b.info?.data_count ? `<span class="badge badge-green">${b.info.data_count} 数据</span>` : ''}
+          </div>
+          <div class="meta">
+            <span>${b.size||'0 B'}</span>
+            <span>${b.created_at||'未知'}</span>
+            ${b.info?.created_at_readable ? `<span>${esc(b.info.created_at_readable)}</span>` : ''}
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-xs btn-success" onclick="downloadBackup('${esc(b.filename)}')" title="下载"><svg style="width:12px;height:12px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+          <button class="btn btn-xs btn-danger" onclick="deleteBackup('${esc(b.filename)}')" title="删除"><svg style="width:12px;height:12px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e){
+    showToast('加载失败: ' + e.message, 'error');
+  }
+}
+function refreshHistory(){ go('history'); }
+
+async function loadCreateOpts(){
+  try{
+    const s = await fetch(API+'/stats').then(r=>r.json());
+    document.getElementById('optConfigInfo').innerHTML = `<svg style="width:14px;height:14px;vertical-align:middle;color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${s.config_count||0} 个 (${fmtSize(s.config_size||0)})`;
+    document.getElementById('optDataInfo').innerHTML = `<svg style="width:14px;height:14px;vertical-align:middle;color:var(--success)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg> ${s.data_count||0} 个 (${fmtSize(s.data_size||0)})`;
+  } catch(e){}
+}
+
+async function doBackup(){
+  const cfg = document.getElementById('optConfig').checked;
+  const dt = document.getElementById('optData').checked;
+  if(!cfg && !dt){ showToast('请至少选择一项', 'error'); return; }
+  try{
+    const r = await fetch(API+'/backup', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ include_config: cfg, include_data: dt }),
+    });
+    const d = await r.json();
+    if(d.success){
+      showToast('备份成功: ' + d.filename, 'success');
+      loadStatus();
+    } else {
+      showToast('备份失败: ' + (d.error||'未知'), 'error');
+    }
+  } catch(e){
+    showToast('备份失败: ' + e.message, 'error');
+  }
+}
+
+function copyPath(){
+  const p = document.getElementById('locPath').textContent;
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(p).then(()=>showToast('路径已复制', 'success')).catch(()=>showToast('复制失败', 'error'));
+  } else {
+    showToast('复制失败', 'error');
+  }
+}
+
+let uploadedFile = null, uploadedFilePath = null;
+
+function handleUpload(file){
+  if(!file) return;
+  if(!file.name.toLowerCase().endsWith('.zip')){ showToast('仅支持 ZIP 格式', 'error'); return; }
+  if(file.size>500*1024*1024){ showToast('文件过大，请上传小于 500MB 的文件', 'error'); return; }
+  uploadedFile = file;
+  uploadFile(file);
+}
+
+async function uploadFile(file){
+  const prog = document.getElementById('uploadProgress');
+  const bar = document.getElementById('uploadBar');
+  const status = document.getElementById('uploadStatus');
+  const preview = document.getElementById('previewBox');
+  prog.style.display = 'block';
+  preview.classList.remove('active');
+  bar.style.width = '30%';
+  status.innerHTML = '<svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;animation:spin 1s linear infinite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg> 正在上传...';
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    const ctrl = new AbortController();
+    const tid = setTimeout(()=>ctrl.abort(), 180000);
+    const r = await fetch(API+'/upload', { method:'POST', body:fd, signal:ctrl.signal });
+    clearTimeout(tid);
+    if(r.status===413){ showToast('文件过大', 'error'); prog.style.display='none'; return; }
+    const d = await r.json();
+    bar.style.width = '100%';
+    status.innerHTML = '<svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;color:var(--success)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 上传完成，正在解析...';
+    if(!d.success){
+      showToast('上传失败: ' + (d.error||'未知'), 'error');
+      prog.style.display = 'none';
+      uploadedFile = null;
+      return;
+    }
+    uploadedFilePath = d.temp_path || null;
+    const grid = document.getElementById('previewGrid');
+    let html = '';
+    const info = d.info || {};
+    if(info.created_at_readable && info.created_at_readable!=='未知')
+      html += `<div class="preview-item"><span class="label">生成时间</span><span class="value">${info.created_at_readable}</span></div>`;
+    if(info.config_count!==undefined)
+      html += `<div class="preview-item"><span class="label">配置文件</span><span class="value">${info.config_count} 个</span></div>`;
+    if(info.data_count!==undefined)
+      html += `<div class="preview-item"><span class="label">数据文件</span><span class="value">${info.data_count} 个</span></div>`;
+    if(info.file_size)
+      html += `<div class="preview-item"><span class="label">文件大小</span><span class="value">${info.file_size}</span></div>`;
+    if(info.total_size_readable)
+      html += `<div class="preview-item"><span class="label">原始大小</span><span class="value">${info.total_size_readable}</span></div>`;
+    if(info.version)
+      html += `<div class="preview-item"><span class="label">备份版本</span><span class="value">v${info.version}</span></div>`;
+    grid.innerHTML = html || '<div class="preview-item"><span class="label">信息</span><span class="value">备份文件有效</span></div>';
+    preview.classList.add('active');
+    prog.style.display = 'none';
+    showToast('解析成功', 'success');
+  } catch(e){
+    prog.style.display = 'none';
+    if(e.name==='AbortError') showToast('上传超时，请重试', 'error');
+    else showToast('上传失败: ' + e.message, 'error');
+    uploadedFile = null;
+  }
+}
+
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', e => { e.preventDefault(); zone.classList.remove('dragover'); });
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('dragover');
+  if(e.dataTransfer.files.length>0) handleUpload(e.dataTransfer.files[0]);
+});
+
+function openRestoreModal(){
+  if(!uploadedFile){ showToast('请先上传备份文件', 'error'); return; }
+  const grid = document.getElementById('previewGrid');
+  let time = '-', cfg = '-', dt = '-';
+  grid.querySelectorAll('.preview-item').forEach(item => {
+    const l = item.querySelector('.label')?.textContent || '';
+    const v = item.querySelector('.value')?.textContent || '';
+    if(l.includes('生成时间')) time = v;
+    if(l.includes('配置文件')) cfg = v;
+    if(l.includes('数据文件')) dt = v;
+  });
+  const body = `
+    <div style="margin-bottom:12px"><strong>恢复将覆盖现有文件</strong><br>配置文件和数据文件将被替换，请确保已备份当前数据。</div>
+    <div class="info-grid">
+      <div class="info-row"><span class="label">文件</span><span class="value" style="font-size:11px;word-break:break-all">${esc(uploadedFile.name)}</span></div>
+      <div class="info-row"><span class="label">生成时间</span><span class="value">${time}</span></div>
+      <div class="info-row"><span class="label">配置文件</span><span class="value">${cfg}</span></div>
+      <div class="info-row"><span class="label">数据文件</span><span class="value">${dt}</span></div>
+    </div>
+    <div style="margin-top:12px;text-align:right">
+      <button class="btn btn-sm" onclick="closeModal();" style="margin-right:8px">取消</button>
+      <button class="btn btn-sm btn-danger" onclick="closeModal();doRestore();">确认恢复</button>
+    </div>
+  `;
+  openModal('确认恢复', body, 'warning');
+}
+
+async function doRestore(){
+  if(!uploadedFile && !uploadedFilePath){ showToast('请先上传备份文件', 'error'); return; }
+  showToast('正在恢复中，请稍候...', 'info');
+  try{
+    const fd = new FormData();
+    if(uploadedFile) fd.append('file', uploadedFile);
+    if(uploadedFilePath) fd.append('temp_path', uploadedFilePath);
+    const r = await fetch(API+'/restore', { method:'POST', body:fd });
+    const d = await r.json();
+    if(d.success){
+      const res = d.result || {};
+      let msg = '恢复成功！';
+      if(res.restored_configs?.length) msg += ` 配置 ${res.restored_configs.length} 个`;
+      if(res.restored_data?.length) msg += `，数据 ${res.restored_data.length} 个`;
+      showToast(msg, 'success');
+      document.getElementById('previewBox').classList.remove('active');
+      document.getElementById('fileInput').value = '';
+      uploadedFile = null;
+      uploadedFilePath = null;
+      loadStatus();
+      showToast('建议重启框架以加载恢复的配置', 'info');
+    } else {
+      showToast('恢复失败: ' + (d.error||'未知'), 'error');
+    }
+  } catch(e){
+    showToast('恢复失败: ' + e.message, 'error');
+  }
+}
+
+function downloadBackup(fn){
+  window.open(API+'/download?fn='+encodeURIComponent(fn), '_blank');
+  showToast('正在下载: ' + fn, 'info');
+}
+
+async function deleteBackup(fn){
+  if(!confirm(`确定删除 "${fn}" 吗？此操作不可撤销。`)) return;
+  try{
+    const r = await fetch(API+'/delete?fn='+encodeURIComponent(fn), { method:'DELETE' });
+    const d = await r.json();
+    if(d.success){
+      showToast('已删除: ' + fn, 'success');
+      loadStatus();
+    } else {
+      showToast('删除失败: ' + (d.error||'未知'), 'error');
+    }
+  } catch(e){ showToast('删除失败: ' + e.message, 'error'); }
+}
+
+loadStatus();
+</script>
+</body>
+</html>
