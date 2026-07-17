@@ -35,7 +35,7 @@ __plugin_meta__ = {
     'name': '重要信息备份与迁移工具',
     'author': 'yhkj-nb',
     'description': '选择性备份和迁移 Bot 配置、框架配置、插件数据',
-    'version': '1.5',
+    'version': '1.5.0',
     'github': 'https://github.com/yhkj-nb/elaina-backup-manager',
     'license': 'MIT',
 }
