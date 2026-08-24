@@ -115,7 +115,7 @@ core.plugin.*, core.base.logger (框架自带)
 
 ### 5. 云盘备份
 
-进入「云盘备份」页面，可添加 / 编辑 / 测试 / 删除多个云盘配置，所有配置以 YAML 形式保存在 `config/cloud_backup.yaml`。
+进入「云盘备份」页面，可添加 / 编辑 / 测试 / 删除多个云盘配置，所有配置以 YAML 形式保存在插件 `data/cloud_backup.yaml`（首次加载自动生成）。
 
 1. 点击「添加云盘」，选择云盘类型
 2. 填写名称与凭据（详见下方各云盘示例）
@@ -220,7 +220,7 @@ core.plugin.*, core.base.logger (框架自带)
 
 ### 配置文件位置
 
-所有云盘配置保存在框架 `config/` 目录下的 `cloud_backup.yaml`:
+所有云盘配置保存在插件 `data/cloud_backup.yaml`，由框架 `ctx.ensure_config()` 在首次加载时自动生成：
 
 ```yaml
 providers:
@@ -272,7 +272,18 @@ excludes:
 
 ### 自定义备份范围
 
-备份逻辑固定打包 `config/` 与 `data/` 目录, 排除「备份工具」自身目录下的文件。如需修改备份源, 编辑 `app/backup.py` 中 `create_backup()` 函数的 glob 规则; 备份存储路径常量 `DATA_DIR` 在 `app/constants.py` 中。
+备份逻辑固定打包 `config/` 与 `data/` 目录, 排除「备份工具」自身目录下的文件。如需修改备份源, 编辑 `app/backup.py` 中 `create_backup()` 函数的 glob 规则。
+
+**自定义备份存储路径**: 编辑插件 `data/config.yaml` 中的 `backup_dir` 字段：
+
+```yaml
+# 留空 (默认) -> 使用 插件目录/data/backups/
+backup_dir: ''
+# 或指定绝对路径 -> 备份文件保存到该目录
+backup_dir: /www/backups
+```
+
+修改后下次备份即生效，无需重启框架。目录不存在时会自动创建。
 
 ---
 
@@ -294,13 +305,16 @@ excludes:
 │   ├── routes.py          # 所有 Web 路由 (含云盘路由)
 │   ├── lifecycle.py       # on_load / on_unload
 │   └── panel.html         # Web 面板
-├── data/                  # 备份输出目录 (运行时生成)
-│   └── cloud_sync_state.json   # 云盘同步状态记录
+├── data/                  # 框架加载时自动生成 (运行数据目录)
+│   ├── config.yaml            # 备份选项 (首次加载自动生成)
+│   ├── cloud_backup.yaml      # 云盘 provider 列表 (首次加载自动生成)
+│   ├── cloud_sync_state.json  # 云盘同步状态记录
+│   └── backups/              # 备份 ZIP 默认输出目录 (可由 config.yaml 改路径)
 ├── README.md
 └── LICENSE
 ```
 
-加载流程: 框架加载 `main.py` → 触发 `import app` → `app/__init__.py` 顺序导入各子模块 → `routes.py` 中的 `@register_route` 装饰器注册路由, `lifecycle.py` 中的 `@on_load` / `@on_unload` 装饰器注册生命周期钩子。
+加载流程: 框架加载 `main.py` → 触发 `import app` → `app/__init__.py` 顺序导入各子模块 → `routes.py` 中的 `@register_route` 装饰器注册路由, `lifecycle.py` 中的 `@on_load` / `@on_unload` 装饰器注册生命周期钩子, `on_load` 时通过 `ctx.ensure_config()` 自动生成默认配置文件。
 
 ---
 
@@ -407,11 +421,21 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 - 备份历史新增「上传到云盘」按钮, 已上传的备份显示紫色 ☁ 徽标
 - 同步状态记录 (`data/cloud_sync_state.json`), 跨重启保留
 
-#### 🔧 技术改进
-- **模块化重构**: 单文件 `main.py` 拆分为 `app/` 目录下 9 个模块
+#### 🔧 框架规范化 (遵循 ElainaBot v2 插件开发文档)
+- **路径解析**: 完全使用框架注入的 `ctx.plugin_dir` / `ctx.data_dir`, 移除所有 `sys.path` hack
+- **配置自动生成**: `on_load` 时调用 `ctx.ensure_config()` 自动生成
+  - `data/config.yaml` (备份选项: `backup_dir` / `include_config` / `include_data` / `max_upload_mb`)
+  - `data/cloud_backup.yaml` (云盘 provider 骨架: `providers` / `last_used`)
+- **可配置备份路径**: 在 `data/config.yaml` 中修改 `backup_dir` 即可改备份 ZIP 输出位置; 留空使用 `data/backups/`
+- **资源文件路径**: Web 面板 HTML 通过 `ctx.get_resource_path('app/panel.html')` 定位
+- **Web 面板注册**: `register_page` 使用 `html_file=` 参数, 由框架读取并托管
+- **日志**: 沿用框架 `core.base.logger.get_logger(PLUGIN, ...)` 范式 (无 `ctx.log` API)
+
+#### 🧩 模块化重构
+- 单文件 `main.py` 拆分为 `app/` 目录下 9 个模块:
   - `constants.py` / `utils.py` / `backup.py` / `restore.py` / `backup_list.py`
   - `cloud.py` (新增云盘实现) / `routes.py` / `lifecycle.py` / `panel.html`
-- `main.py` 仅保留入口逻辑, 兼容包内 / 顶层两种插件加载方式
+- `main.py` 仅保留入口逻辑, 通过 `importlib` 顺序加载 `app/` 下公开子模块
 - WebDAV 客户端基于 `aiohttp` 实现 (PROPFIND / PUT / DELETE / MKCOL)
 - S3 客户端基于 `aiohttp` 手动实现 AWS Signature V4 签名 (无需 boto3)
 - FTP 客户端基于标准库 `ftplib`, 同步调用通过线程池异步化
@@ -464,7 +488,7 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 
 ### Q1: 备份文件在哪里？
 
-默认存储在 `/www/wwwroot/QQBOT/backups/` 目录下，可在 `main.py` 中自定义路径。
+默认存储在插件 `data/backups/` 目录下，可在 `data/config.yaml` 的 `backup_dir` 字段中自定义绝对路径。框架加载插件时自动创建 `data/` 目录与 `config.yaml` / `cloud_backup.yaml` 配置骨架。
 
 ### Q2: 如何恢复备份？
 
@@ -477,11 +501,11 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 
 - 检查磁盘空间是否充足
 - 查看面板控制台错误日志
-- 确认备份目录有写入权限
+- 确认 `data/backups/` (或 `backup_dir` 自定义路径) 有写入权限
 
 ### Q4: 可以自定义备份哪些目录吗？
 
-可以，编辑 `main.py` 中的 `BACKUP_CONFIG` 配置项。
+可以，编辑 `app/backup.py` 中 `create_backup()` 函数的 glob 规则；备份输出路径在 `data/config.yaml` 的 `backup_dir` 字段修改。
 
 ### Q5: 为什么 API 不需要认证？
 

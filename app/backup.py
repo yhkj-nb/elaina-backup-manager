@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from .constants import CONFIG_DIR, DATA_DIR, PROJECT_ROOT
+from .constants import CONFIG_DIR, PROJECT_ROOT, get_backup_dir
 from .utils import (
     log, format_size,
     get_config_files, get_data_files,
@@ -50,7 +50,7 @@ def generate_backup_info(include_config: bool = True, include_data: bool = True)
         'data_size': data_size,
         'data_size_readable': format_size(data_size),
         'total_size_readable': format_size(config_size + data_size),
-        'backup_location': str(DATA_DIR),
+        'backup_location': str(get_backup_dir()),
         'hostname': os.uname().nodename if hasattr(os, 'uname') else 'unknown'
     }
 
@@ -88,7 +88,7 @@ def generate_readme(info: Dict[str, Any]) -> str:
 def create_backup(include_config: bool = True, include_data: bool = True) -> Optional[str]:
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"backup_{timestamp}.zip"
-    zip_path = DATA_DIR / filename
+    zip_path = get_backup_dir() / filename
     info = generate_backup_info(include_config, include_data)
     readme_content = generate_readme(info)
 

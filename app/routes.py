@@ -13,7 +13,7 @@ from aiohttp import web
 
 from core.plugin.decorators import register_route
 
-from .constants import PLUGIN_DIR, DATA_DIR
+from .constants import get_backup_dir
 from .utils import log, format_size, get_disk_usage, get_config_files, get_config_size, get_data_files, get_data_size
 from .backup import create_backup
 from .restore import restore_backup, parse_backup_info
@@ -52,7 +52,13 @@ CLOUD_SYNC_STATE_PATH = '/api/ext/backup_manager/cloud/sync_state'
 
 @register_route('GET', PAGE_PATH, auth=False)
 async def serve_page(request):
-    html_path = PLUGIN_DIR / 'app' / 'panel.html'
+    # 通过 ctx.get_resource_path 获取插件资源路径 (panel.html 位于 app/ 下)
+    try:
+        from core.plugin.context import ctx
+        html_path = ctx.get_resource_path('app/panel.html')
+    except Exception:
+        # 兜底: 用本文件位置推断
+        html_path = Path(__file__).parent / 'panel.html'
     if html_path.exists():
         with open(html_path, 'r', encoding='utf-8') as f:
             return web.Response(text=f.read(), content_type='text/html; charset=utf-8')
@@ -68,11 +74,12 @@ async def api_stats(request):
     config_size = get_config_size()
     data_files = get_data_files()
     data_size = get_data_size()
-    backup_count = len(list(DATA_DIR.glob('backup_*.zip')))
+    backup_dir = get_backup_dir()
+    backup_count = len(list(backup_dir.glob('backup_*.zip')))
     disk_usage = get_disk_usage()
 
     return web.json_response({
-        'backup_location': str(DATA_DIR),
+        'backup_location': str(backup_dir),
         'config_count': len(config_files),
         'config_files': config_files,
         'config_size': config_size,
@@ -121,7 +128,7 @@ async def api_upload_backup(request):
         if len(file_data) > 500 * 1024 * 1024:
             return web.json_response({'success': False, 'error': '文件过大，请上传小于 500MB 的文件'})
 
-        tmp_dir = DATA_DIR / 'temp'
+        tmp_dir = get_backup_dir() / 'temp'
         tmp_dir.mkdir(exist_ok=True)
         tmp_path = tmp_dir / f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         tmp_path.write_bytes(file_data)
@@ -173,7 +180,7 @@ async def api_restore_backup(request):
         if temp_path_str and Path(temp_path_str).exists():
             zip_path = Path(temp_path_str)
         else:
-            tmp_dir = DATA_DIR / 'temp'
+            tmp_dir = get_backup_dir() / 'temp'
             tmp_dir.mkdir(exist_ok=True)
             zip_path = tmp_dir / f"restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
             zip_path.write_bytes(file_data)
@@ -228,7 +235,7 @@ async def api_download_backup(request):
     if not filename.endswith('.zip'):
         return web.json_response({'success': False, 'error': '仅支持 ZIP 文件'})
 
-    file_path = DATA_DIR / filename
+    file_path = get_backup_dir() / filename
     if not file_path.exists() or not file_path.is_file():
         return web.json_response({'success': False, 'error': f'文件不存在: {filename}'})
 

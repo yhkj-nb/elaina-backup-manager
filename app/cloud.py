@@ -23,7 +23,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import aiohttp
 
-from .constants import DATA_DIR, CLOUD_CONFIG_PATH
+from .constants import DATA_DIR, CLOUD_CONFIG_PATH, get_backup_dir
 from .utils import log, format_size
 
 
@@ -900,10 +900,10 @@ def _build_remote_path(provider_cfg: Dict[str, Any], filename: str) -> str:
 
 
 async def upload_backup_to_cloud(pid: str, filename: str) -> Dict[str, Any]:
-    """把本地 DATA_DIR 下的备份文件上传到指定云盘"""
+    """把本地 get_backup_dir() 下的备份文件上传到指定云盘"""
     if not filename or '..' in filename or '/' in filename or '\\' in filename:
         return {'success': False, 'error': '非法文件名'}
-    local_path = DATA_DIR / filename
+    local_path = get_backup_dir() / filename
     if not local_path.exists() or not local_path.is_file():
         return {'success': False, 'error': '本地备份文件不存在'}
     provider_cfg = get_provider_raw(pid)
@@ -937,7 +937,7 @@ async def list_cloud_backups(pid: str, remote_path: str = '') -> Dict[str, Any]:
 
 
 async def download_cloud_backup(pid: str, remote_path: str) -> Dict[str, Any]:
-    """从云盘下载备份到本地 DATA_DIR"""
+    """从云盘下载备份到本地备份目录 (get_backup_dir())"""
     if not remote_path:
         return {'success': False, 'error': '远端路径为空'}
     provider = build_provider(pid)
@@ -948,7 +948,7 @@ async def download_cloud_backup(pid: str, remote_path: str) -> Dict[str, Any]:
         return {'success': False, 'error': '仅支持 ZIP 文件'}
     if '..' in name or '/' in name or '\\' in name:
         return {'success': False, 'error': '非法文件名'}
-    local_path = DATA_DIR / f"cloud_{name}"
+    local_path = get_backup_dir() / f"cloud_{name}"
     return await provider.download_file(remote_path, local_path)
 
 
@@ -963,6 +963,7 @@ async def delete_cloud_backup(pid: str, remote_path: str) -> Dict[str, Any]:
 
 
 def _state_path() -> Path:
+    # 同步状态写入插件 data/ 目录 (运行数据, 不随备份路径迁移)
     return DATA_DIR / 'cloud_sync_state.json'
 
 
