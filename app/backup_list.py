@@ -5,16 +5,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
 
-from .constants import DATA_DIR
+from .constants import get_backup_dir
 from .utils import log, format_size
 from .restore import parse_backup_info
 
 
 def get_backups_list() -> List[Dict[str, Any]]:
     backups = []
-    if not DATA_DIR.exists():
+    backup_dir = get_backup_dir()
+    if not backup_dir.exists():
         return backups
-    for f in sorted(DATA_DIR.glob('backup_*.zip'), key=lambda x: x.stat().st_mtime, reverse=True):
+    for f in sorted(backup_dir.glob('backup_*.zip'), key=lambda x: x.stat().st_mtime, reverse=True):
         try:
             stat = f.stat()
             info = parse_backup_info(f)
@@ -34,7 +35,7 @@ def get_backups_list() -> List[Dict[str, Any]]:
 def delete_backup_file(filename: str) -> Dict[str, Any]:
     if not filename or '..' in filename or '/' in filename or '\\' in filename:
         return {'success': False, 'error': '非法文件名'}
-    file_path = DATA_DIR / filename
+    file_path = get_backup_dir() / filename
     if not file_path.exists():
         return {'success': False, 'error': '文件不存在'}
     if not file_path.is_file():

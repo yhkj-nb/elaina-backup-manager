@@ -16,6 +16,9 @@
 from .constants import (
     PLUGIN_DIR, PROJECT_ROOT, CONFIG_DIR, DATA_DIR,
     CLOUD_CONFIG_PATH, __plugin_meta__,
+    get_backup_dir,
+    DEFAULT_BACKUP_CONFIG, CONFIG_COMMENTS,
+    DEFAULT_CLOUD_CONFIG, CLOUD_CONFIG_COMMENTS,
 )
 from .utils import log, format_size
 from .backup import create_backup
@@ -28,6 +31,9 @@ from . import lifecycle  # noqa: F401  (注册生命周期)
 __all__ = [
     'PLUGIN_DIR', 'PROJECT_ROOT', 'CONFIG_DIR', 'DATA_DIR',
     'CLOUD_CONFIG_PATH', '__plugin_meta__',
+    'get_backup_dir',
+    'DEFAULT_BACKUP_CONFIG', 'CONFIG_COMMENTS',
+    'DEFAULT_CLOUD_CONFIG', 'CLOUD_CONFIG_COMMENTS',
     'log', 'format_size',
     'create_backup',
     'restore_backup', 'parse_backup_info',
