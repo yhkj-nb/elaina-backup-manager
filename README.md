@@ -2,7 +2,7 @@
 
 > **选择性备份与迁移 Bot 核心数据 — 配置文件 · 插件数据 · 一键导入导出**
 
-[![版本](https://img.shields.io/badge/版本-v1.5-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
+[![版本](https://img.shields.io/badge/版本-v1.6-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green)](LICENSE)
 [![ElainaBot](https://img.shields.io/badge/框架-ElainaBot%20v2-blue)](https://github.com/ElainaCore/ElainaBot_v2)
 [![Python](https://img.shields.io/badge/Python-3.11+-purple)](https://python.org)
@@ -15,7 +15,9 @@
 - [功能特性](#-功能特性)
 - [安装部署](#-安装部署)
 - [使用说明](#-使用说明)
+- [云盘备份](#-云盘备份)
 - [备份范围](#-备份范围)
+- [项目结构](#-项目结构)
 - [API 参考](#-api-参考)
 - [更新日志](#-更新日志)
 - [常见问题](#-常见问题)
@@ -30,11 +32,13 @@
 |------|------|
 | 📦 **智能备份** | 自动打包 config/ 目录配置文件与所有插件 data/ 数据文件 |
 | 🔄 **ZIP 导入/导出** | 标准 ZIP 格式，支持上传备份文件进行恢复 |
+| ☁️ **云盘备份** | 支持上传到 WebDAV / S3 兼容 / FTP 三大类云盘 |
 | 🎨 **现代化 UI** | 浅色主题面板，侧边栏导航，响应式布局 |
 | 📊 **仪表盘** | 实时展示备份统计、存储空间、最近备份记录 |
 | 🔓 **免验证访问** | 所有 API 路由 `auth=False`，无需登录即可调用 |
 | 🛡️ **安全校验** | 路径穿越防护、ZIP 完整性检测、文件名白名单过滤 |
 | ⚡ **热重载支持** | 插件更新即时生效，无需重启框架 |
+| 🧩 **模块化结构** | main.py 拆分到 app/ 目录，按职责划分模块 |
 
 ---
 
@@ -61,11 +65,15 @@ rm -rf elaina-backup-manager
 
 ### 依赖说明
 
-本插件使用 Python 标准库，**无需额外安装第三方依赖**：
+本插件主要使用 Python 标准库 + 框架自带库，**无需额外安装第三方依赖**：
 
 ```
-json, zipfile, yaml, pathlib, datetime, uuid, os, urllib.parse
+json, zipfile, yaml, pathlib, datetime, os, urllib.parse, hashlib, hmac, ftplib
+aiohttp (Web 服务 + WebDAV / S3 客户端, 框架自带)
+core.plugin.*, core.base.logger (框架自带)
 ```
+
+> 云盘备份功能基于 `aiohttp` 实现 WebDAV / S3 兼容协议, 基于 `ftplib` 实现 FTP, 均不引入额外依赖。
 
 ---
 
@@ -100,9 +108,146 @@ json, zipfile, yaml, pathlib, datetime, uuid, os, urllib.parse
 1. 点击侧边栏「备份历史」
 2. 查看所有已生成的备份记录
 3. 支持操作：
-   - **下载**：导出备份文件到本地
-   - **详情**：查看备份包含的文件列表
-   - **删除**：移除指定备份（不可恢复）
+   - **☁️ 上传到云盘**：把该备份推送到已配置的云盘
+   - **⬇️ 下载**：导出备份文件到本地
+   - **🗑️ 删除**：移除指定备份（不可恢复）
+4. 已上传到云盘的备份会显示紫色 ☁ 徽标
+
+### 5. 云盘备份
+
+进入「云盘备份」页面，可添加 / 编辑 / 测试 / 删除多个云盘配置，所有配置以 YAML 形式保存在 `config/cloud_backup.yaml`。
+
+1. 点击「添加云盘」，选择云盘类型
+2. 填写名称与凭据（详见下方各云盘示例）
+3. 点击「测试连接」验证凭据
+4. 保存后即可在「备份历史」中点击 ☁️ 上传该备份
+5. 进入「云盘文件」页面可浏览、下载、删除云盘上的备份文件
+
+---
+
+## ☁️ 云盘备份
+
+本插件通过三类协议覆盖市面上绝大多数常见网盘 / 对象存储 / NAS：
+
+### 协议与对应服务
+
+| 协议 | 适用云盘 / 服务 | 凭据要点 |
+|------|----------------|----------|
+| **WebDAV** | 坚果云 / NextCloud / ownCloud / Koofr / Box / 群晖 Drive | URL + 账号 + 密码 (坚果云请用应用密码) |
+| **S3 兼容** | AWS S3 / Cloudflare R2 / Backblaze B2 / MinIO / 阿里云 OSS / 腾讯云 COS | Endpoint + Region + Bucket + Access Key + Secret Key |
+| **FTP / FTPS** | NAS / 虚拟主机 / 传统 FTP 服务器 | 主机 + 端口 + 用户名 + 密码 (+ TLS) |
+
+### 各云盘配置示例
+
+#### 坚果云 (WebDAV)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `webdav` |
+| 名称 | `我的坚果云` |
+| URL | `https://dav.jianguoyun.com/dav/` |
+| 账号 | 你的坚果云登录邮箱 |
+| 密码 | **应用密码** (坚果云 → 安全选项 → 添加应用, 不要用登录密码) |
+
+#### Cloudflare R2 (S3 兼容)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `s3` |
+| Endpoint | `https://<account_id>.r2.cloudflarestorage.com` |
+| Region | `auto` |
+| Bucket | 你的 R2 bucket 名 |
+| Access Key | R2 → Manage R2 API Tokens → 创建的 Access Key ID |
+| Secret Key | 对应的 Secret Access Key |
+| Path-Style | ✅ 开启 (R2 必须开启) |
+
+#### Backblaze B2 (S3 兼容)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `s3` |
+| Endpoint | `https://s3.<region>.backblazeb2.com` |
+| Region | 同 endpoint 中的 region |
+| Bucket | B2 bucket 名 |
+| Access Key | B2 → App Keys → keyID |
+| Secret Key | 对应的 applicationKey |
+| Path-Style | ✅ 开启 |
+
+#### MinIO (S3 兼容, 自建)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `s3` |
+| Endpoint | `http(s)://your-minio:9000` |
+| Region | `us-east-1` (任意, 自建固定填) |
+| Bucket | 已创建的 bucket |
+| Access Key / Secret Key | MinIO 启动时设置的 root 凭据或用户凭据 |
+| Path-Style | ✅ 必须开启 |
+
+#### 阿里云 OSS (S3 兼容)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `s3` |
+| Endpoint | `https://oss-<region>.aliyuncs.com` |
+| Region | `oss-cn-hangzhou` 等 |
+| Service | `oss` (重要: 不是 s3) |
+| Bucket | OSS bucket 名 |
+| Access Key / Secret Key | RAM 用户 AccessKey |
+| Path-Style | ✅ 开启 |
+
+#### 腾讯云 COS (S3 兼容)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `s3` |
+| Endpoint | `https://cos.<region>.myqcloud.com` |
+| Region | `ap-guangzhou` 等 |
+| Service | `cos` (重要: 不是 s3) |
+| Bucket | 形如 `name-1234567890` |
+| Access Key / Secret Key | CAM 用户的 SecretId / SecretKey |
+| Path-Style | ✅ 开启 |
+
+#### NAS / 虚拟主机 (FTP)
+
+| 字段 | 值 |
+|------|------|
+| 类型 | `ftp` |
+| 主机 | `nas.example.com` 或内网 IP |
+| 端口 | `21` (FTPS 一般也是 21, 显式 TLS) |
+| 用户名 / 密码 | FTP 账号 |
+| 启用 FTPS (TLS) | 视服务端开启情况勾选 |
+
+### 配置文件位置
+
+所有云盘配置保存在框架 `config/` 目录下的 `cloud_backup.yaml`:
+
+```yaml
+providers:
+  nutstore_xxxxx:
+    type: webdav
+    name: 我的坚果云
+    url: https://dav.jianguoyun.com/dav/
+    username: me@example.com
+    password: app_password_here
+    remote_path: backups/
+    timeout: 60
+    updated_at: '2026-08-24T10:00:00'
+  r2_xxxxx:
+    type: s3
+    name: 我的 R2
+    endpoint: https://<id>.r2.cloudflarestorage.com
+    region: auto
+    bucket: my-backups
+    access_key: AKxxx
+    secret_key: SKxxx
+    service: s3
+    path_style: true
+    remote_path: ''
+last_used: nutstore_xxxxx
+```
+
+> 凭据以明文存储在本机配置文件中, 请确保服务器访问权限受控。面板返回给前端时会自动脱敏。
 
 ---
 
@@ -125,23 +270,37 @@ excludes:
   - "logs/"              # 日志目录（可选）
 ```
 
-### 自定义备份
+### 自定义备份范围
 
-在 `main.py` 的 `BACKUP_CONFIG` 中可自定义备份路径：
+备份逻辑固定打包 `config/` 与 `data/` 目录, 排除「备份工具」自身目录下的文件。如需修改备份源, 编辑 `app/backup.py` 中 `create_backup()` 函数的 glob 规则; 备份存储路径常量 `DATA_DIR` 在 `app/constants.py` 中。
 
-```python
-BACKUP_CONFIG = {
-    'include_dirs': [
-        'config/',
-        'plugins/*/data/',
-    ],
-    'exclude_patterns': [
-        '*.pyc',
-        '__pycache__',
-    ],
-    'backup_dir': '/www/wwwroot/QQBOT/backups/',  # 备份存储路径
-}
+---
+
+## 🗂️ 项目结构
+
+自 v1.6 起, 单文件 `main.py` 拆分为模块化 `app/` 目录:
+
 ```
+备份工具/
+├── main.py                # 入口 (仅触发 app 包导入, 完成路由与生命周期注册)
+├── app/
+│   ├── __init__.py        # 包入口, 导出公开 API
+│   ├── constants.py       # 路径常量、插件元数据
+│   ├── utils.py           # format_size / 文件扫描 / 磁盘使用
+│   ├── backup.py          # 本地备份创建 (ZIP 打包)
+│   ├── restore.py         # 备份恢复、备份信息解析
+│   ├── backup_list.py     # 本地备份列表、删除
+│   ├── cloud.py           # 云盘备份 (WebDAV / S3 / FTP)
+│   ├── routes.py          # 所有 Web 路由 (含云盘路由)
+│   ├── lifecycle.py       # on_load / on_unload
+│   └── panel.html         # Web 面板
+├── data/                  # 备份输出目录 (运行时生成)
+│   └── cloud_sync_state.json   # 云盘同步状态记录
+├── README.md
+└── LICENSE
+```
+
+加载流程: 框架加载 `main.py` → 触发 `import app` → `app/__init__.py` 顺序导入各子模块 → `routes.py` 中的 `@register_route` 装饰器注册路由, `lifecycle.py` 中的 `@on_load` / `@on_unload` 装饰器注册生命周期钩子。
 
 ---
 
@@ -149,53 +308,120 @@ BACKUP_CONFIG = {
 
 所有 API 路径前缀：`/api/ext/backup_manager`
 
-### 通用请求
+### 页面
 
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|------|------|
-| `GET` | `/page` | ❌ | 打开 Web 面板 |
+| `GET` | `` (前缀根) | ❌ | 打开 Web 面板 |
 
-### 备份管理
+### 本地备份
 
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|------|------|
-| `GET` | `/api/stats` | ❌ | 获取备份统计信息 |
-| `GET` | `/api/list` | ❌ | 获取备份文件列表 |
-| `POST` | `/api/create` | ❌ | 创建新备份 |
-| `POST` | `/api/import` | ❌ | 上传并导入备份 |
-| `GET` | `/api/download?fn=<name>` | ❌ | 下载备份文件 |
-| `DELETE` | `/api/delete?fn=<name>` | ❌ | 删除备份文件 |
-| `GET` | `/api/detail?fn=<name>` | ❌ | 获取备份文件详情 |
+| `GET` | `/stats` | ❌ | 获取备份统计 + 磁盘使用 |
+| `GET` | `/disk_usage` | ❌ | 仅获取磁盘使用 |
+| `GET` | `/backups` | ❌ | 获取备份列表 |
+| `POST` | `/backup` | ❌ | 创建新备份 (body: `{include_config, include_data}`) |
+| `POST` | `/upload` | ❌ | 上传备份文件 (multipart, 返回解析信息) |
+| `POST` | `/restore` | ❌ | 恢复上传的备份 (multipart) |
+| `GET` | `/download?fn=<name>` | ❌ | 下载备份文件 |
+| `DELETE` | `/delete?fn=<name>` | ❌ | 删除备份文件 |
+
+### 云盘备份
+
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| `GET` | `/cloud/schema` | ❌ | 获取云盘类型表单 schema |
+| `GET` | `/cloud/list` | ❌ | 列出所有云盘配置 (脱敏) |
+| `GET` | `/cloud/get?pid=<id>` | ❌ | 获取单个云盘配置 (脱敏) |
+| `POST` | `/cloud/save` | ❌ | 新增或更新云盘配置 (body 含可选 `id`) |
+| `DELETE` | `/cloud/delete?pid=<id>` | ❌ | 删除云盘配置 |
+| `POST` | `/cloud/test` | ❌ | 测试连接 (body: `{pid}` 或临时配置) |
+| `GET` | `/cloud/files?pid=<id>&path=<path>` | ❌ | 列出云盘备份文件 |
+| `POST` | `/cloud/upload` | ❌ | 上传本地备份到云盘 (body: `{pid, filename}`) |
+| `GET` | `/cloud/download?pid=<id>&path=<path>` | ❌ | 从云盘下载备份到本地 |
+| `DELETE` | `/cloud/delete_file?pid=<id>&path=<path>` | ❌ | 删除云盘上的备份 |
+| `GET` | `/cloud/sync_state` | ❌ | 获取本地↔云盘同步状态 |
 
 ### 请求示例
 
 ```bash
 # 获取备份列表
-curl http://localhost:5200/api/ext/backup_manager/api/list
+curl http://localhost:5200/api/ext/backup_manager/backups
 
 # 创建备份
-curl -X POST http://localhost:5200/api/ext/backup_manager/api/create
+curl -X POST http://localhost:5200/api/ext/backup_manager/backup \
+  -H 'Content-Type: application/json' \
+  -d '{"include_config": true, "include_data": true}'
 
 # 下载备份
-curl -o backup.zip "http://localhost:5200/api/ext/backup_manager/api/download?fn=backup_20250415_120000.zip"
+curl -o backup.zip "http://localhost:5200/api/ext/backup_manager/download?fn=backup_20250415_120000.zip"
 
-# 删除备份
-curl -X DELETE "http://localhost:5200/api/ext/backup_manager/api/delete?fn=backup_20250415_120000.zip"
+# 列出云盘配置
+curl http://localhost:5200/api/ext/backup_manager/cloud/list
+
+# 上传备份到云盘
+curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/upload \
+  -H 'Content-Type: application/json' \
+  -d '{"pid": "nutstore_xxx", "filename": "backup_20250415_120000.zip"}'
+
+# 测试云盘连接
+curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
+  -H 'Content-Type: application/json' \
+  -d '{"pid": "nutstore_xxx"}'
 ```
 
 ### 响应格式
 
+统一返回 JSON, 字段以 `success` 布尔值标记结果:
+
 ```json
 {
-    "code": 200,
-    "msg": "success",
-    "data": { ... }
+  "success": true,
+  "filename": "backup_20250415_120000.zip"
+}
+```
+
+失败时返回:
+
+```json
+{
+  "success": false,
+  "error": "错误描述"
 }
 ```
 
 ---
 
 ## 📋 更新日志
+
+### v1.6 (2026-08)
+
+#### ✨ 新增功能
+- **云盘备份**: 把本地备份一键上传到云盘, 支持三类常见协议
+  - **WebDAV**: 坚果云 / NextCloud / ownCloud / Koofr / Box / 群晖 Drive
+  - **S3 兼容**: AWS S3 / Cloudflare R2 / Backblaze B2 / MinIO / 阿里云 OSS / 腾讯云 COS
+  - **FTP / FTPS**: NAS / 虚拟主机 / 传统 FTP 服务器
+- 云盘配置管理面板: 添加 / 编辑 / 删除 / 测试连接, 凭据自动脱敏
+- 云盘文件浏览器: 列出 / 下载 / 删除云盘上的备份
+- 备份历史新增「上传到云盘」按钮, 已上传的备份显示紫色 ☁ 徽标
+- 同步状态记录 (`data/cloud_sync_state.json`), 跨重启保留
+
+#### 🔧 技术改进
+- **模块化重构**: 单文件 `main.py` 拆分为 `app/` 目录下 9 个模块
+  - `constants.py` / `utils.py` / `backup.py` / `restore.py` / `backup_list.py`
+  - `cloud.py` (新增云盘实现) / `routes.py` / `lifecycle.py` / `panel.html`
+- `main.py` 仅保留入口逻辑, 兼容包内 / 顶层两种插件加载方式
+- WebDAV 客户端基于 `aiohttp` 实现 (PROPFIND / PUT / DELETE / MKCOL)
+- S3 客户端基于 `aiohttp` 手动实现 AWS Signature V4 签名 (无需 boto3)
+- FTP 客户端基于标准库 `ftplib`, 同步调用通过线程池异步化
+- 敏感字段 (`password` / `secret_key` / `access_key` / `token`) 在 API 返回时自动脱敏
+
+#### 📚 文档
+- README 新增「云盘备份」「项目结构」章节, 列出各云盘配置示例
+- API 参考表与实际路由对齐, 补充云盘相关接口
+
+---
 
 ### v1.5 (2026-07)
 
