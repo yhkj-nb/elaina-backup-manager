@@ -54,7 +54,8 @@ CLOUD_SYNC_STATE_PATH = '/api/ext/backup_manager/cloud/sync_state'
 async def serve_page(request):
     # 通过 ctx.get_resource_path 获取插件资源路径 (panel.html 位于 app/ 下)
     try:
-        from core.plugin.context import ctx
+        import core.plugin.context as _ctx_mod
+        ctx = _ctx_mod.ctx
         html_path = ctx.get_resource_path('app/panel.html')
     except Exception:
         # 兜底: 用本文件位置推断

@@ -17,7 +17,8 @@ from .constants import CONFIG_DIR, PROJECT_ROOT, DATA_DIR
 class _LogProxy:
     def _ctx(self):
         try:
-            from core.plugin.context import ctx
+            import core.plugin.context as _ctx_mod
+            ctx = _ctx_mod.ctx
             return ctx if getattr(ctx, 'log', None) else None
         except Exception:
             return None
