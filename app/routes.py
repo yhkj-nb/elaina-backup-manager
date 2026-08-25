@@ -108,9 +108,15 @@ async def api_stats(request):
 @register_route('POST', BACKUP_CREATE_PATH, auth=False)
 async def api_create_backup(request):
     try:
-        # 备份内容固定包含 config/ 目录 + data/ 目录
-        # (不再读取请求中的 include_config/include_data, 不提供开关)
-        filename = create_backup(include_config=True, include_data=True)
+        # 面板每次备份时可临时选择是否备份 config/data
+        # (这两个选项不写入配置文件, 仅由前端根据用户选择传参)
+        data = await request.json() if request.can_read_body else {}
+        include_config = data.get('include_config', True)
+        include_data = data.get('include_data', True)
+        # 至少选一项
+        if not include_config and not include_data:
+            return web.json_response({'success': False, 'error': '请至少选择一项备份内容'})
+        filename = create_backup(include_config=include_config, include_data=include_data)
         if filename:
             return web.json_response({'success': True, 'filename': filename})
         return web.json_response({'success': False, 'error': '备份创建失败'})
