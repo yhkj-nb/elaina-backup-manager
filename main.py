@@ -1,11 +1,11 @@
 # plugins/备份工具/main.py
-"""重要信息备份与迁移工具 - v1.6
+"""重要信息备份与迁移工具 - v2.0
 
 入口文件 - 按固定顺序加载 app/ 下的公开子模块, 触发路由、页面与生命周期注册。
 功能实现均位于 app/ 各子模块, 本文件不包含业务逻辑。
 
 作者: yhkj-nb
-版本: 1.6.0
+版本: 2.0.0
 仓库: https://github.com/yhkj-nb/elaina-backup-manager
 许可证: MIT
 """
@@ -21,7 +21,7 @@ __plugin_meta__ = {
     'name': '重要信息备份与迁移工具',
     'author': 'yhkj-nb',
     'description': '选择性备份和迁移 Bot 配置、插件数据, 支持上传至云盘',
-    'version': '1.6.0',
+    'version': '2.0.0',
     'github': 'https://github.com/yhkj-nb/elaina-backup-manager',
     'license': 'MIT',
 }
