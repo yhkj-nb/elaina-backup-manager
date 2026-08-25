@@ -30,9 +30,14 @@ __plugin_meta__ = {
 
 
 def _get_ctx():
-    """获取框架注入的插件上下文。框架在加载插件期间已设置好 ctx。"""
-    from core.plugin.context import ctx as _ctx
-    return _ctx
+    """获取框架注入的插件上下文。
+
+    必须用 `import core.plugin.context as _ctx_mod` 然后 `_ctx_mod.ctx`,
+    不能用 `from core.plugin.context import ctx` —— 后者绑定 import 时的快照,
+    可能为 None, 导致后续 ctx.ensure_config / ctx.read_config 报错。
+    """
+    import core.plugin.context as _ctx_mod
+    return _ctx_mod.ctx
 
 
 def _resolve_paths():
@@ -104,7 +109,8 @@ def get_backup_dir() -> Path:
     - 配置 backup_dir 填了路径: 返回该路径, 目录不存在时自动创建 (仅对自定义路径 mkdir)
     """
     try:
-        from core.plugin.context import ctx as _ctx
+        import core.plugin.context as _ctx_mod
+        _ctx = _ctx_mod.ctx
         cfg = _ctx.read_config('config.yaml') if _ctx else {}
     except Exception:
         cfg = {}

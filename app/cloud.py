@@ -54,9 +54,10 @@ def _read_full_config() -> Dict[str, Any]:
     """
     # 1) 优先用 ctx (框架标准 API)
     try:
-        from core.plugin.context import ctx
-        if ctx:
-            data = ctx.read_config(CLOUD_CONFIG_FILE)
+        import core.plugin.context as _ctx_mod
+        _ctx = _ctx_mod.ctx
+        if _ctx:
+            data = _ctx.read_config(CLOUD_CONFIG_FILE)
             if isinstance(data, dict):
                 return data
     except Exception:
@@ -81,9 +82,10 @@ def _write_full_config(data: Dict[str, Any]) -> None:
     """
     # 1) 优先用 ctx
     try:
-        from core.plugin.context import ctx
-        if ctx:
-            ctx.save_config(CLOUD_CONFIG_FILE, data)
+        import core.plugin.context as _ctx_mod
+        _ctx = _ctx_mod.ctx
+        if _ctx:
+            _ctx.save_config(CLOUD_CONFIG_FILE, data)
             return
     except Exception:
         pass
