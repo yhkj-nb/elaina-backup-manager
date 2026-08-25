@@ -11,7 +11,7 @@ from urllib.parse import unquote
 
 from aiohttp import web
 
-from core.plugin.decorators import register_route
+from core.plugin.web_pages import register_route
 
 from .constants import get_backup_dir
 from .utils import log, format_size, get_disk_usage, get_config_files, get_config_size, get_data_files, get_data_size
