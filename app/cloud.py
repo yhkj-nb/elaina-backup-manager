@@ -23,11 +23,15 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import aiohttp
 
-from .constants import DATA_DIR, CLOUD_CONFIG_PATH, get_backup_dir
+from .constants import DATA_DIR, get_backup_dir
 from .utils import log, format_size
 
 
 # ==================== 配置管理 ====================
+
+# 云盘配置统一存储在 data/config.yaml 的 providers / last_used 字段下
+# 不再使用单独的 cloud_backup.yaml, 避免与备份路径配置分成两个文件
+CLOUD_CONFIG_FILE = 'config.yaml'
 
 
 # 敏感字段在返回给前端时会被脱敏
@@ -43,36 +47,72 @@ def _mask_secrets(provider: Dict[str, Any]) -> Dict[str, Any]:
     return masked
 
 
-def _ensure_config_dir():
-    CLOUD_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _read_full_config() -> Dict[str, Any]:
+    """读取 data/config.yaml 完整内容 (含备份路径 + 云盘配置)。
+
+    通过框架 ctx 读写; ctx 不可用时回退到直接文件读写。
+    """
+    # 1) 优先用 ctx (框架标准 API)
+    try:
+        from core.plugin.context import ctx
+        if ctx:
+            data = ctx.read_config(CLOUD_CONFIG_FILE)
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    # 2) 兜底: 直接读文件 (单测 / 离线环境)
+    p = DATA_DIR / CLOUD_CONFIG_FILE
+    if p.exists():
+        try:
+            import yaml
+            with open(p, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _write_full_config(data: Dict[str, Any]) -> None:
+    """写回 data/config.yaml 完整内容 (保留所有字段)。
+
+    通过框架 ctx 保存; ctx 不可用时回退到直接文件写入。
+    """
+    # 1) 优先用 ctx
+    try:
+        from core.plugin.context import ctx
+        if ctx:
+            ctx.save_config(CLOUD_CONFIG_FILE, data)
+            return
+    except Exception:
+        pass
+    # 2) 兜底: 直接写文件
+    try:
+        import yaml
+        with open(DATA_DIR / CLOUD_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    except Exception as e:
+        log.error(f'保存配置失败: {e}')
 
 
 def load_cloud_config() -> Dict[str, Any]:
-    """读取云盘配置文件; 不存在时返回默认结构"""
-    if not CLOUD_CONFIG_PATH.exists():
-        return {'providers': {}, 'last_used': None}
-    try:
-        import yaml
-        with open(CLOUD_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
-        if not isinstance(data, dict):
-            return {'providers': {}, 'last_used': None}
-        data.setdefault('providers', {})
-        data.setdefault('last_used', None)
-        return data
-    except Exception as e:
-        log.error(f'读取云盘配置失败: {e}')
-        return {'providers': {}, 'last_used': None}
+    """读取云盘配置部分 (providers / last_used); 不存在时返回默认结构。
+
+    注意: 只返回云盘相关字段, 但写回时通过 _write_full_config 保留完整配置。
+    """
+    data = _read_full_config()
+    data.setdefault('providers', {})
+    data.setdefault('last_used', None)
+    return data
 
 
 def save_cloud_config(config: Dict[str, Any]) -> None:
-    _ensure_config_dir()
-    try:
-        import yaml
-        with open(CLOUD_CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
-    except Exception as e:
-        log.error(f'保存云盘配置失败: {e}')
+    """保存云盘配置到 data/config.yaml (只更新 providers/last_used, 不动 backup_dir 等)"""
+    full = _read_full_config()
+    full['providers'] = config.get('providers', {})
+    full['last_used'] = config.get('last_used')
+    _write_full_config(full)
 
 
 def list_providers_masked() -> List[Dict[str, Any]]:

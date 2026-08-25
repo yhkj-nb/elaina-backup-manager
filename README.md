@@ -115,7 +115,7 @@ core.plugin.*, core.base.logger (框架自带)
 
 ### 5. 云盘备份
 
-进入「云盘备份」页面，可添加 / 编辑 / 测试 / 删除多个云盘配置，所有配置以 YAML 形式保存在插件 `data/cloud_backup.yaml`（首次加载自动生成）。
+进入「云盘备份」页面，可添加 / 编辑 / 测试 / 删除多个云盘配置，所有配置统一保存在插件 `data/config.yaml` 的 `providers` 字段下（首次加载自动生成）。
 
 1. 点击「添加云盘」，选择云盘类型
 2. 填写名称与凭据（详见下方各云盘示例）
@@ -220,7 +220,7 @@ core.plugin.*, core.base.logger (框架自带)
 
 ### 配置文件位置
 
-所有云盘配置保存在插件 `data/cloud_backup.yaml`，由框架 `ctx.ensure_config()` 在首次加载时自动生成：
+所有配置（备份路径 + 云盘 provider）统一保存在插件 `data/config.yaml`，由框架 `ctx.ensure_config()` 在首次加载时自动生成：
 
 ```yaml
 providers:
@@ -277,7 +277,7 @@ excludes:
 **自定义备份存储路径**: 编辑插件 `data/config.yaml` 中的 `backup_dir` 字段：
 
 ```yaml
-# 留空 (默认) -> 使用 插件目录/data/backups/
+# 留空 (默认) -> 直接放在框架自动创建的 data/ 目录下
 backup_dir: ''
 # 或指定绝对路径 -> 备份文件保存到该目录
 backup_dir: /www/backups
@@ -306,10 +306,9 @@ backup_dir: /www/backups
 │   ├── lifecycle.py       # on_load / on_unload
 │   └── panel.html         # Web 面板
 ├── data/                  # 框架加载时自动生成 (运行数据目录)
-│   ├── config.yaml            # 备份选项 (首次加载自动生成)
-│   ├── cloud_backup.yaml      # 云盘 provider 列表 (首次加载自动生成)
+│   ├── config.yaml            # 统一配置: 备份路径 + 云盘 provider (首次加载自动生成)
 │   ├── cloud_sync_state.json  # 云盘同步状态记录
-│   └── backups/              # 备份 ZIP 默认输出目录 (可由 config.yaml 改路径)
+│   └── *.zip                  # 备份 ZIP 文件 (默认直接放 data/ 下, 可由 config.yaml 改路径)
 ├── README.md
 └── LICENSE
 ```
@@ -424,12 +423,11 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 #### 🔧 框架规范化 (遵循 ElainaBot v2 插件开发文档)
 - **路径解析**: 完全使用框架注入的 `ctx.plugin_dir` / `ctx.data_dir`, 移除所有 `sys.path` hack
 - **配置自动生成**: `on_load` 时调用 `ctx.ensure_config()` 自动生成
-  - `data/config.yaml` (备份选项: `backup_dir` / `include_config` / `include_data` / `max_upload_mb`)
-  - `data/cloud_backup.yaml` (云盘 provider 骨架: `providers` / `last_used`)
-- **可配置备份路径**: 在 `data/config.yaml` 中修改 `backup_dir` 即可改备份 ZIP 输出位置; 留空使用 `data/backups/`
+  - `data/config.yaml` (统一配置: `backup_dir` / `include_config` / `include_data` / `max_upload_mb` / `providers` / `last_used`)
+- **可配置备份路径**: 在 `data/config.yaml` 中修改 `backup_dir` 即可改备份 ZIP 输出位置; 留空则直接放在框架自动创建的 `data/` 目录下
 - **资源文件路径**: Web 面板 HTML 通过 `ctx.get_resource_path('app/panel.html')` 定位
 - **Web 面板注册**: `register_page` 使用 `html_file=` 参数, 由框架读取并托管
-- **日志**: 沿用框架 `core.base.logger.get_logger(PLUGIN, ...)` 范式 (无 `ctx.log` API)
+- **日志**: 通过 `_LogProxy` 懒代理 `ctx.log` (文档 §9); ctx 不可用时 fallback 到标准 `logging`
 
 #### 🧩 模块化重构
 - 单文件 `main.py` 拆分为 `app/` 目录下 9 个模块:
@@ -488,7 +486,7 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 
 ### Q1: 备份文件在哪里？
 
-默认存储在插件 `data/backups/` 目录下，可在 `data/config.yaml` 的 `backup_dir` 字段中自定义绝对路径。框架加载插件时自动创建 `data/` 目录与 `config.yaml` / `cloud_backup.yaml` 配置骨架。
+默认直接存储在框架自动创建的 `data/` 目录下，可在 `data/config.yaml` 的 `backup_dir` 字段中自定义绝对路径。框架加载插件时自动创建 `data/` 目录与 `config.yaml` 配置骨架。
 
 ### Q2: 如何恢复备份？
 
@@ -501,7 +499,7 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 
 - 检查磁盘空间是否充足
 - 查看面板控制台错误日志
-- 确认 `data/backups/` (或 `backup_dir` 自定义路径) 有写入权限
+- 确认 `data/` 目录 (或 `backup_dir` 自定义路径) 有写入权限
 
 ### Q4: 可以自定义备份哪些目录吗？
 
