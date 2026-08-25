@@ -14,6 +14,14 @@
 from pathlib import Path
 from typing import Any, Dict
 
+import core.plugin.context as _ctx_mod
+
+# ⚠️ 模块顶层获取 ctx 的快照引用 — 必须在模块导入时 (此时 _ctx_mod.ctx 仍有效) 保存
+# 框架加载顺序: 设 ctx → 导入模块 → 置空 ctx → 调 on_load
+# 因此任何运行时 (on_load 之后) 再去读 _ctx_mod.ctx 拿到的都是 None!
+# 所有后续函数都必须使用本模块级的 _ctx 快照变量。
+_ctx = _ctx_mod.ctx
+
 # ==================== 插件元数据 ====================
 
 __plugin_meta__ = {
@@ -30,14 +38,12 @@ __plugin_meta__ = {
 
 
 def _get_ctx():
-    """获取框架注入的插件上下文。
+    """获取框架注入的插件上下文 (模块级快照)。
 
-    必须用 `import core.plugin.context as _ctx_mod` 然后 `_ctx_mod.ctx`,
-    不能用 `from core.plugin.context import ctx` —— 后者绑定 import 时的快照,
-    可能为 None, 导致后续 ctx.ensure_config / ctx.read_config 报错。
+    框架在模块导入前设置、导入后 (on_load 前) 立即清空 _ctx_mod.ctx,
+    因此必须使用本模块顶层捕获的 _ctx 快照, 不能再动态读取 _ctx_mod.ctx。
     """
-    import core.plugin.context as _ctx_mod
-    return _ctx_mod.ctx
+    return _ctx
 
 
 def _resolve_paths():
@@ -109,8 +115,7 @@ def get_backup_dir() -> Path:
     - 配置 backup_dir 填了路径: 返回该路径, 目录不存在时自动创建 (仅对自定义路径 mkdir)
     """
     try:
-        import core.plugin.context as _ctx_mod
-        _ctx = _ctx_mod.ctx
+        # 使用模块级 _ctx 快照 (框架加载后 _ctx_mod.ctx 已被置为 None)
         cfg = _ctx.read_config('config.yaml') if _ctx else {}
     except Exception:
         cfg = {}

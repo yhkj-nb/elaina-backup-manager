@@ -11,17 +11,19 @@ import os
 from pathlib import Path
 from typing import Dict, List, Any
 
+import core.plugin.context as _ctx_mod
+
+# ⚠️ 模块顶层获取 ctx 快照 — 框架在模块导入后立即清空 _ctx_mod.ctx
+# 任何运行时 (Web 请求 / on_load 之后) 再读 _ctx_mod.ctx 都是 None!
+_ctx = _ctx_mod.ctx
+
 from .constants import CONFIG_DIR, PROJECT_ROOT, DATA_DIR
 
 
 class _LogProxy:
     def _ctx(self):
-        try:
-            import core.plugin.context as _ctx_mod
-            ctx = _ctx_mod.ctx
-            return ctx if getattr(ctx, 'log', None) else None
-        except Exception:
-            return None
+        # 返回模块级快照, 不再动态读取 _ctx_mod.ctx
+        return _ctx if getattr(_ctx, 'log', None) else None
 
     def _fallback(self) -> logging.Logger:
         return logging.getLogger('备份工具')

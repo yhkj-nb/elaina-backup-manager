@@ -52,16 +52,21 @@ log.info('✅ 备份工具面板已注册 (含云盘备份)')
 
 @on_load
 async def init():
-    # 动态获取 ctx 的最新引用 (避免模块级快照为 None 的问题)
-    ctx = _ctx_mod.ctx
-    if ctx is None:
-        log.warning('ctx 未就绪, 跳过配置文件生成 (非致命)')
+    # ⚠️ 必须使用模块顶层的 _ctx 快照, 不能再去取 _ctx_mod.ctx!
+    # 框架的加载顺序:
+    #   1) 设置 _ctx_mod.ctx = plugin_ctx  →  模块导入时快照有效
+    #   2) 导入插件模块 (含 on_load 装饰器收集)
+    #   3) _finalize_plugin 中先把 _ctx_mod.ctx = None   ← 先置空!
+    #   4) 最后才调用 on_load hooks                      ← 后执行!
+    # 所以 on_load 期间动态取 _ctx_mod.ctx 一定是 None, 必须用模块级快照
+    if _ctx is None:
+        log.warning('ctx 快照为空, 跳过配置文件生成 (非致命)')
     else:
         # 自动生成 data/config.yaml (首次加载时)
         # 统一配置: 备份路径 backup_dir + 云盘 providers + 其他选项
         # ensure_config 只补齐缺失的顶层键, 不会覆盖用户已有配置
         try:
-            ctx.ensure_config(
+            _ctx.ensure_config(
                 DEFAULT_CONFIG,
                 filename='config.yaml',
                 comments=CONFIG_COMMENTS,

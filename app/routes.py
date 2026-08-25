@@ -13,6 +13,12 @@ from aiohttp import web
 
 from core.plugin.web_pages import register_route
 
+import core.plugin.context as _ctx_mod
+
+# ⚠️ 模块顶层获取 ctx 快照 — 框架在模块导入后立即清空 _ctx_mod.ctx
+# 任何运行时 (Web 请求 / on_load 之后) 再读 _ctx_mod.ctx 都是 None!
+_ctx = _ctx_mod.ctx
+
 from .constants import get_backup_dir
 from .utils import log, format_size, get_disk_usage, get_config_files, get_config_size, get_data_files, get_data_size
 from .backup import create_backup
@@ -52,13 +58,14 @@ CLOUD_SYNC_STATE_PATH = '/api/ext/backup_manager/cloud/sync_state'
 
 @register_route('GET', PAGE_PATH, auth=False)
 async def serve_page(request):
-    # 通过 ctx.get_resource_path 获取插件资源路径 (panel.html 位于 app/ 下)
+    # 通过模块级 _ctx 快照获取插件资源路径 (panel.html 位于 app/ 下)
+    # 注意: 框架已将 _ctx_mod.ctx 清空, 不能再动态读取!
     try:
-        import core.plugin.context as _ctx_mod
-        ctx = _ctx_mod.ctx
-        html_path = ctx.get_resource_path('app/panel.html')
+        html_path = _ctx.get_resource_path('app/panel.html') if _ctx else None
     except Exception:
-        # 兜底: 用本文件位置推断
+        html_path = None
+    # 兜底: 用本文件位置推断
+    if not html_path:
         html_path = Path(__file__).parent / 'panel.html'
     if html_path.exists():
         with open(html_path, 'r', encoding='utf-8') as f:

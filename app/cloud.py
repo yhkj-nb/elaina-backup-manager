@@ -23,6 +23,12 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import aiohttp
 
+import core.plugin.context as _ctx_mod
+
+# ⚠️ 模块顶层获取 ctx 快照 — 框架在模块导入后立即清空 _ctx_mod.ctx
+# 任何运行时 (Web 请求 / on_load 之后) 再读 _ctx_mod.ctx 都是 None!
+_ctx = _ctx_mod.ctx
+
 from .constants import DATA_DIR, get_backup_dir
 from .utils import log, format_size
 
@@ -50,12 +56,10 @@ def _mask_secrets(provider: Dict[str, Any]) -> Dict[str, Any]:
 def _read_full_config() -> Dict[str, Any]:
     """读取 data/config.yaml 完整内容 (含备份路径 + 云盘配置)。
 
-    通过框架 ctx 读写; ctx 不可用时回退到直接文件读写。
+    通过模块级 _ctx 快照读写; ctx 不可用时回退到直接文件读写。
     """
-    # 1) 优先用 ctx (框架标准 API)
+    # 1) 优先用 ctx (框架标准 API) — 使用模块级快照, 不能再读 _ctx_mod.ctx!
     try:
-        import core.plugin.context as _ctx_mod
-        _ctx = _ctx_mod.ctx
         if _ctx:
             data = _ctx.read_config(CLOUD_CONFIG_FILE)
             if isinstance(data, dict):
@@ -78,12 +82,10 @@ def _read_full_config() -> Dict[str, Any]:
 def _write_full_config(data: Dict[str, Any]) -> None:
     """写回 data/config.yaml 完整内容 (保留所有字段)。
 
-    通过框架 ctx 保存; ctx 不可用时回退到直接文件写入。
+    通过模块级 _ctx 快照保存; ctx 不可用时回退到直接文件写入。
     """
-    # 1) 优先用 ctx
+    # 1) 优先用 ctx — 使用模块级快照, 不能再读 _ctx_mod.ctx!
     try:
-        import core.plugin.context as _ctx_mod
-        _ctx = _ctx_mod.ctx
         if _ctx:
             _ctx.save_config(CLOUD_CONFIG_FILE, data)
             return
