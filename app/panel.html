@@ -332,20 +332,11 @@
 
       <div class="page" id="page-create">
         <div class="card">
-          <div class="card-title">备份选项</div>
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <div class="toggle-title">配置文件</div>
-              <div class="toggle-desc">config/ 目录下的所有 YAML 配置</div>
-            </div>
-            <input type="checkbox" id="optConfig" checked>
-          </div>
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <div class="toggle-title">数据文件</div>
-              <div class="toggle-desc">data/ 目录下的所有插件数据</div>
-            </div>
-            <input type="checkbox" id="optData" checked>
+          <div class="card-title">备份内容</div>
+          <div style="padding:12px;background:var(--bg2);border-radius:var(--radius-sm);font-size:13px;color:var(--text2);border:1px solid var(--border)">
+            固定包含以下内容 (无需配置):
+            <br>✅ <b>配置文件</b> — config/ 目录下的所有 YAML 配置
+            <br>✅ <b>数据文件</b> — data/ 目录下的所有插件数据
           </div>
           <div style="margin-top:12px;padding:10px;background:var(--bg2);border-radius:var(--radius-sm);font-size:13px;color:var(--text2);border:1px solid var(--border)">
             <span id="optConfigInfo">加载中...</span> &nbsp;·&nbsp; <span id="optDataInfo">加载中...</span>
@@ -583,11 +574,9 @@ async function loadCreateOpts(){
 }
 
 async function doBackup(){
-  const cfg = $('optConfig').checked;
-  const dt = $('optData').checked;
-  if(!cfg && !dt){ showToast('请至少选择一项', 'error'); return; }
+  // 备份内容固定: config/ + data/ (不再给用户选择, 直接开始)
   try{
-    const r = await fetch(API+'/backup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({include_config:cfg, include_data:dt})});
+    const r = await fetch(API+'/backup', {method:'POST'});
     const d = await r.json();
     if(d.success){ showToast('备份成功: ' + d.filename, 'success'); loadStatus(); }
     else showToast('备份失败: ' + (d.error||'未知'), 'error');

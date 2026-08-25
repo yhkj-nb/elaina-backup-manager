@@ -108,10 +108,9 @@ async def api_stats(request):
 @register_route('POST', BACKUP_CREATE_PATH, auth=False)
 async def api_create_backup(request):
     try:
-        data = await request.json() if request.can_read_body else {}
-        include_config = data.get('include_config', True)
-        include_data = data.get('include_data', True)
-        filename = create_backup(include_config, include_data)
+        # 备份内容固定包含 config/ 目录 + data/ 目录
+        # (不再读取请求中的 include_config/include_data, 不提供开关)
+        filename = create_backup(include_config=True, include_data=True)
         if filename:
             return web.json_response({'success': True, 'filename': filename})
         return web.json_response({'success': False, 'error': '备份创建失败'})

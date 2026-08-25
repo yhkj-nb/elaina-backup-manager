@@ -84,27 +84,26 @@ DATA_DIR: Path = PLUGIN_DIR / 'data'
 # ==================== 默认配置 ====================
 
 # 统一配置文件 data/config.yaml 的默认值, 由 ctx.ensure_config('config.yaml') 写入
-# - backup_dir: 自定义备份路径; 留空表示直接放在框架自动创建的 data/ 目录下
-# - providers:  云盘 provider 字典, 由 Web 面板管理
-# - last_used:  最近使用的 provider id
+# - backup_dir:   自定义备份路径; 留空表示直接放在框架自动创建的 data/ 目录下
+# - max_upload_mb: Web 面板上传备份文件的大小上限 (MB)
+# - providers:    云盘 provider 字典, 由 Web 面板管理
+# - last_used:    最近使用的 provider id (用户上次选了哪个网盘, 下次默认就用它)
+#
+# 注: 备份内容包含 config/ 目录 + data/ 目录是强制的, 不提供配置开关。
 DEFAULT_CONFIG: Dict[str, Any] = {
     'backup_dir': '',          # 留空 = 直接放在 data/ 目录下; 也可填绝对路径如 /www/backups
-    'include_config': True,   # 默认备份框架 config/ 目录
-    'include_data': True,     # 默认备份框架 data/ 目录
     'max_upload_mb': 500,     # Web 面板上传备份文件的大小上限 (MB)
-    'providers': {},          # 云盘 provider 列表, 由 Web 面板管理
-    'last_used': None,        # 最近使用的 provider id
+    'providers': {},          # 云盘 provider 列表, 由 Web 面板管理 (key=provider id, value=该网盘配置)
+    'last_used': None,        # 最近一次使用的 provider id (记录用户上次选了哪个网盘)
 }
 
 # 配置文件字段注释, 由 ctx.ensure_config(comments=...) 渲染
 CONFIG_COMMENTS: Dict[str, Any] = {
-    '__desc__': '备份工具配置 - 由框架自动生成, 修改后无需重启, 下次操作即生效',
+    '__desc__': '备份工具配置 - 由框架自动生成, 修改后无需重启, 下次操作即生效\n备份内容固定包含: 框架 config/ 目录 + 框架 data/ 目录',
     'backup_dir': '备份文件存储目录; 留空则直接放在框架自动创建的 data/ 目录下; 也可填绝对路径',
-    'include_config': '是否默认备份框架 config/ 目录',
-    'include_data': '是否默认备份框架 data/ 目录',
     'max_upload_mb': 'Web 面板上传备份文件的大小上限 (MB)',
-    'providers': '云盘 provider 字典, key 为 provider id, value 为各云盘配置 (由 Web 面板管理)',
-    'last_used': '最近一次使用的 provider id',
+    'providers': '云盘 provider 字典, key 为 provider id, value 为各云盘配置 (由 Web 面板管理, 不要手工编辑)',
+    'last_used': '最近一次使用的云盘 provider id; 下次打开云盘页签时会默认选中它 (由插件自动维护)',
 }
 
 
