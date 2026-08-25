@@ -78,6 +78,11 @@ async def api_stats(request):
     backup_dir = get_backup_dir()
     backup_count = len(list(backup_dir.glob('backup_*.zip')))
     disk_usage = get_disk_usage()
+    # 前端直接展示用的格式化字段 + 修正字段名 (used_pct -> usage_percent 对齐 panel.html 读取)
+    disk_usage['used_readable'] = format_size(disk_usage.get('used', 0))
+    disk_usage['free_readable'] = format_size(disk_usage.get('free', 0))
+    disk_usage['total_readable'] = format_size(disk_usage.get('total', 0))
+    disk_usage['usage_percent'] = disk_usage.get('used_pct', 0.0)
 
     return web.json_response({
         'backup_location': str(backup_dir),
@@ -263,6 +268,10 @@ async def api_download_backup(request):
 @register_route('GET', DISK_USAGE_PATH, auth=False)
 async def api_disk_usage(request):
     usage = get_disk_usage()
+    usage['used_readable'] = format_size(usage.get('used', 0))
+    usage['free_readable'] = format_size(usage.get('free', 0))
+    usage['total_readable'] = format_size(usage.get('total', 0))
+    usage['usage_percent'] = usage.get('used_pct', 0.0)
     return web.json_response({'success': True, 'disk_usage': usage})
 
 
