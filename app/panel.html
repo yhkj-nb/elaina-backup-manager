@@ -454,6 +454,7 @@
 const API = '/api/ext/backup_manager';
 const $ = id => document.getElementById(id);
 const esc = s => (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function formatSize(b){ const n=Number(b)||0; if(n<0)return '0 B'; if(n<1024)return n+' B'; if(n<1024*1024)return (n/1024).toFixed(1)+' KB'; if(n<1024*1024*1024)return (n/(1024*1024)).toFixed(1)+' MB'; return (n/(1024*1024*1024)).toFixed(1)+' GB'; }
 
 const TYPE_LABELS = {webdav:'WebDAV', s3:'S3 兼容', ftp:'FTP'};
 
@@ -523,9 +524,9 @@ async function loadStatus(){
     $('locPath').textContent = stats.backup_location || '未知';
     $('b-backups').textContent = stats.backup_count || 0;
     const du = stats.disk_usage || {};
-    $('diskUsed').textContent = du.used || '-';
-    $('diskFree').textContent = du.free || '-';
-    const pct = du.usage_percent || 0;
+    $('diskUsed').textContent = du.used_readable || formatSize(du.used || 0);
+    $('diskFree').textContent = du.free_readable || formatSize(du.free || 0);
+    const pct = du.usage_percent || du.used_pct || 0;
     $('diskPercent').textContent = pct + '%';
     $('diskBar').style.width = pct + '%';
     $('listCount').textContent = (backups.backups||[]).length + ' 个';
