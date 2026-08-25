@@ -3,8 +3,12 @@
 
 框架注册时机:
 - register_page: 模块导入时立刻调用 (与 @register_route 同阶段), 不放在 on_load 内
-- on_load: 加载完毕后创建目录 + 生成配置文件
+- on_load: 加载完毕后生成统一配置文件 data/config.yaml
 - on_unload: 卸载前注销页面 (框架不会按插件所有者自动清理页面)
+
+注意:
+- data/ 目录由框架在加载插件时自动创建, 代码无需 mkdir
+- 所有配置 (备份路径 + 云盘 provider) 统一放在一个 data/config.yaml 里
 """
 
 from pathlib import Path
@@ -13,9 +17,8 @@ from core.plugin.decorators import on_load, on_unload
 from core.plugin.web_pages import register_page, unregister_page
 
 from .constants import (
-    __plugin_meta__, get_backup_dir,
-    DEFAULT_BACKUP_CONFIG, CONFIG_COMMENTS,
-    DEFAULT_CLOUD_CONFIG, CLOUD_CONFIG_COMMENTS,
+    __plugin_meta__,
+    DEFAULT_CONFIG, CONFIG_COMMENTS,
 )
 from .utils import log
 
@@ -40,27 +43,20 @@ register_page(
 log.info('✅ 备份工具面板已注册 (含云盘备份)')
 
 
-# ==================== on_load: 目录 + 配置 ====================
+# ==================== on_load: 生成统一配置 ====================
 
 
 @on_load
 async def init():
-    # 1) 确保备份输出目录存在 (从配置读取, 留空 = data/backups/)
-    get_backup_dir()  # 内部已 mkdir
-
-    # 2) 自动生成 data/config.yaml 与 data/cloud_backup.yaml (首次加载时)
-    #    ensure_config 只补齐缺失的顶层键, 不会覆盖用户已有配置
+    # 自动生成 data/config.yaml (首次加载时)
+    # 统一配置: 备份路径 backup_dir + 云盘 providers + 其他选项
+    # ensure_config 只补齐缺失的顶层键, 不会覆盖用户已有配置
     try:
         from core.plugin.context import ctx
         ctx.ensure_config(
-            DEFAULT_BACKUP_CONFIG,
+            DEFAULT_CONFIG,
             filename='config.yaml',
             comments=CONFIG_COMMENTS,
-        )
-        ctx.ensure_config(
-            DEFAULT_CLOUD_CONFIG,
-            filename='cloud_backup.yaml',
-            comments=CLOUD_CONFIG_COMMENTS,
         )
     except Exception as e:
         log.warning(f'生成配置文件失败 (非致命): {e}')

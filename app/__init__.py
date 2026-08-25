@@ -1,6 +1,6 @@
 # plugins/备份工具/app/__init__.py
 """
-备份工具应用包 - v1.6
+备份工具应用包 - v1.7
 
 模块化拆分:
 - constants: 路径常量与插件元数据
@@ -15,10 +15,9 @@
 
 from .constants import (
     PLUGIN_DIR, PROJECT_ROOT, CONFIG_DIR, DATA_DIR,
-    CLOUD_CONFIG_PATH, __plugin_meta__,
+    __plugin_meta__,
     get_backup_dir,
-    DEFAULT_BACKUP_CONFIG, CONFIG_COMMENTS,
-    DEFAULT_CLOUD_CONFIG, CLOUD_CONFIG_COMMENTS,
+    DEFAULT_CONFIG, CONFIG_COMMENTS,
 )
 from .utils import log, format_size
 from .backup import create_backup
@@ -30,10 +29,9 @@ from . import lifecycle  # noqa: F401  (注册生命周期)
 
 __all__ = [
     'PLUGIN_DIR', 'PROJECT_ROOT', 'CONFIG_DIR', 'DATA_DIR',
-    'CLOUD_CONFIG_PATH', '__plugin_meta__',
+    '__plugin_meta__',
     'get_backup_dir',
-    'DEFAULT_BACKUP_CONFIG', 'CONFIG_COMMENTS',
-    'DEFAULT_CLOUD_CONFIG', 'CLOUD_CONFIG_COMMENTS',
+    'DEFAULT_CONFIG', 'CONFIG_COMMENTS',
     'log', 'format_size',
     'create_backup',
     'restore_backup', 'parse_backup_info',
