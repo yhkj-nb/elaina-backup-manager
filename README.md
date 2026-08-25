@@ -2,11 +2,11 @@
 
 > **选择性备份与迁移 Bot 核心数据 — 配置文件 · 插件数据 · 一键导入导出**
 
-[![版本](https://img.shields.io/badge/版本-v1.6-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
+[![版本](https://img.shields.io/badge/版本-v2.0-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green)](LICENSE)
 [![ElainaBot](https://img.shields.io/badge/框架-ElainaBot%20v2-blue)](https://github.com/ElainaCore/ElainaBot_v2)
 [![Python](https://img.shields.io/badge/Python-3.11+-purple)](https://python.org)
-[![QQ群](https://img.shields.io/badge/QQ交流群-点击链接查看所有群-blue)](https://api.yhkj.ddns-ip.net/qun.php)
+[![QQ群](https://img.shields.io/badge/QQ交流群-点击链接查看所有群-blue)](https://yhkj-nb.github.io/yhkj-nb/QQ.html)
 
 ---
 
@@ -444,7 +444,9 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 - API 参考表与实际路由对齐, 补充云盘相关接口
 
 ---
-
+## v2.0
+支持云盘上传功能
+优化了备份机制，减少一些不必要的占用
 ### v1.5 (2026-07)
 
 #### ✨ 新增功能
@@ -548,7 +550,7 @@ chore: 构建流程/依赖更新
 本项目采用 [MIT 许可证](LICENSE)。
 
 ```
-Copyright (c) 2025 yhkj-nb
+Copyright (c) 2026 yhkj-nb
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -576,7 +578,7 @@ SOFTWARE.
 | 渠道 | 链接 |
 |------|------|
 | 📦 GitHub | [yhkj-nb/elaina-backup-manager](https://github.com/yhkj-nb/elaina-backup-manager) |
-| 💬 QQ 群 | [点击链接查看全部群](https://api.yhkj.ddns-ip.net/qun.php) |
+| 💬 QQ 群 | [点击链接查看全部群](https://yhkj-nb.github.io/yhkj-nb/QQ.html) |
 | 📧 Issue | [GitHub Issues](https://github.com/yhkj-nb/elaina-backup-manager/issues) |
 
 ---
