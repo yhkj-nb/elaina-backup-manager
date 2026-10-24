@@ -99,7 +99,7 @@ def generate_backup_info(
     data_size = _total_size(data_paths) if include_data else 0
 
     return {
-        'version': '1.7',
+        'version': '2.1',
         'created_at': now.isoformat(),
         'created_at_readable': now.strftime('%Y-%m-%d %H:%M:%S'),
         'bot_config': {
@@ -125,7 +125,7 @@ def generate_readme(info: Dict[str, Any]) -> str:
     lines = [
         '# 备份说明', '',
         f'**生成时间**: {info.get("created_at_readable", "未知")}',
-        f'**备份版本**: v{info.get("version", "1.7")}',
+        f'**备份版本**: v{info.get("version", "2.1")}',
         f'**主机名**: {info.get("hostname", "未知")}', '', '---', '',
         '## 备份内容', '',
     ]
@@ -145,7 +145,7 @@ def generate_readme(info: Dict[str, Any]) -> str:
     lines.extend(['', '---', '', '## 恢复方法', '',
         '1. 安装本插件到新框架', '2. 在 Web 面板进入「备份迁移」页面',
         '3. 上传此 ZIP 文件', '4. 点击「恢复备份」按钮', '', '---', '',
-        f'*备份工具版本: v{info.get("version", "1.7")}*',
+        f'*备份工具版本: v{info.get("version", "2.1")}*',
         f'*生成于 {info.get("created_at_readable", "未知")}*',
     ])
     return '\n'.join(lines)
