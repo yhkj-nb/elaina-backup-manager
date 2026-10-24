@@ -58,19 +58,15 @@ CLOUD_SYNC_STATE_PATH = '/api/ext/backup_manager/cloud/sync_state'
 
 @register_route('GET', PAGE_PATH, auth=False)
 async def serve_page(request):
-    # 通过模块级 _ctx 快照获取插件资源路径 (panel.html 位于 app/ 下)
-    # 注意: 框架已将 _ctx_mod.ctx 清空, 不能再动态读取!
+    # panel.html 与 routes.py 同处 app/ 目录, 直接用本文件位置定位, 最可靠
+    # (框架的 get_resource_path 在不同版本可能返回 str 或路径解析不一致, 故不再依赖它)
+    html_path = Path(__file__).resolve().parent / 'panel.html'
     try:
-        html_path = _ctx.get_resource_path('app/panel.html') if _ctx else None
-    except Exception:
-        html_path = None
-    # 兜底: 用本文件位置推断
-    if not html_path:
-        html_path = Path(__file__).parent / 'panel.html'
-    if html_path.exists():
         with open(html_path, 'r', encoding='utf-8') as f:
-            return web.Response(text=f.read(), content_type='text/html; charset=utf-8')
-    return web.Response(text='<p>页面文件不存在</p>', content_type='text/html; charset=utf-8')
+            return web.Response(text=f.read(), content_type='text/html')
+    except Exception as e:
+        log.error(f'读取面板失败: {e}')
+        return web.Response(text='<p>页面文件不存在</p>', content_type='text/html')
 
 
 # ==================== 本地备份 ====================
