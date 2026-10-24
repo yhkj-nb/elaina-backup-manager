@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>备份与迁移工具v2.0</title>
+<script>
+/* 在首屏绘制前应用主题, 避免闪烁: 优先读本地偏好, 否则跟随系统 */
+(function(){
+  try{
+    var t = localStorage.getItem('eb-theme');
+    if(!t){ t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light'; }
+    document.documentElement.setAttribute('data-theme', t);
+  }catch(e){ document.documentElement.setAttribute('data-theme', 'light'); }
+})();
+</script>
 <style>
   :root{
     --bg:#ffffff; --bg2:#f7f8fa; --bg3:#eef1f6; --bg-float:#ffffff;
@@ -19,6 +29,25 @@
     --shadow-md:0 4px 12px rgba(0,0,0,.08);
     --shadow-lg:0 10px 28px rgba(0,0,0,.14);
   }
+  /* ==================== 深色主题 ==================== */
+  [data-theme="dark"]{
+    --bg:#1e2128; --bg2:#16181d; --bg3:#2a2e37; --bg-float:#252932;
+    --text:#e6e9ef; --text2:#aab3c2; --text3:#7c8699;
+    --border:#2f343f; --border2:rgba(255,255,255,.07);
+    --accent:#6d79f7; --accent-hover:#5865f2; --accent-light:#8b9bf0;
+    --success:#34d399; --danger:#f87171; --warning:#fbbf24; --info:#22d3ee;
+    --sidebar-bg:#191c22;
+    --accent-soft:#2b2f4d; --accent-line:#3b416b;
+    --success-soft:#123029; --danger-soft:#3a1f1f; --warning-soft:#362913;
+    --shadow:0 1px 3px rgba(0,0,0,.35);
+    --shadow-md:0 4px 12px rgba(0,0,0,.45);
+    --shadow-lg:0 10px 28px rgba(0,0,0,.55);
+  }
+  [data-theme="dark"] tr:hover td{background:#272b34}
+  [data-theme="dark"] .backup-item:hover{background:#21252d}
+  [data-theme="dark"] .preview-item{border-bottom-color:rgba(255,255,255,.05)}
+  [data-theme="dark"] ::-webkit-scrollbar-thumb{background:rgba(150,165,190,.3)}
+  [data-theme="dark"] .info-row{background:var(--bg2)}
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
@@ -274,6 +303,7 @@
     <div class="eb-header">
       <h1 id="page-title">总览面板</h1>
       <div class="header-right">
+        <button class="btn btn-sm" id="themeToggle" onclick="toggleTheme()" title="切换深色 / 浅色主题"></button>
         <button class="btn btn-sm" onclick="refreshCurrent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>
       </div>
     </div>
@@ -974,6 +1004,28 @@ async function deleteCloudFile(pid, remotePath){
     else showToast('删除失败: ' + (d.error||'未知'), 'error');
   } catch(e){ showToast('删除失败: ' + e.message, 'error'); }
 }
+
+/* ==================== 主题切换 (深色 / 浅色) ==================== */
+function applyTheme(t){
+  if(t!=='dark' && t!=='light'){
+    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = $('themeToggle');
+  if(btn){
+    btn.innerHTML = t==='dark'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg> 浅色'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg> 深色';
+  }
+  return t;
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = cur==='dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('eb-theme', next); }catch(e){}
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('eb-theme'));
 
 loadStatus();
 </script>
