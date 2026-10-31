@@ -36,13 +36,21 @@ else:
     # 兜底: 本文件同级目录
     _html_path = Path(__file__).parent / 'panel.html'
 
+# 侧边栏图标: 与框架其它插件页面一致, 使用同风格线性 SVG (不使用 emoji 扳手)
+_ICON = (
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>'
+    '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+)
+
 register_page(
     key='backup_manager',
-    label='🔧 备份迁移',
+    label='备份迁移',
     source='plugin',
     source_name='备份工具',
     html_file=_html_path,
-    icon='settings',
+    icon=_ICON,
 )
 log.info('✅ 备份工具面板已注册 (含云盘备份)')
 
@@ -74,10 +82,10 @@ async def init():
         except Exception as e:
             log.warning(f'生成配置文件失败 (非致命): {e}')
 
-    log.info(f'🔧 重要信息备份与迁移工具 v{__plugin_meta__["version"]} 已加载')
+    log.info(f'重要信息备份与迁移工具 v{__plugin_meta__["version"]} 已加载')
 
 
 @on_unload
 def cleanup():
     unregister_page('backup_manager')
-    log.info('🔧 重要信息备份与迁移工具已卸载')
+    log.info('重要信息备份与迁移工具已卸载')

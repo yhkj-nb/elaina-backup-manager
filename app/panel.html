@@ -3,12 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>备份与迁移工具v2.0</title>
+<title>备份与迁移工具</title>
 <script>
-/* 在首屏绘制前应用主题, 避免闪烁: 优先读本地偏好, 否则跟随系统 */
+/* 在首屏绘制前应用主题, 避免闪烁: 优先本地偏好 → 框架面板主题 → 系统偏好 */
 (function(){
   try{
     var t = localStorage.getItem('eb-theme');
+    if(!t){
+      /* 未手动选择过: 尝试继承框架管理面板的 --bg (iframe 与面板同源) */
+      try{
+        var cs = window.parent.getComputedStyle(window.parent.document.documentElement);
+        var raw = (cs.getPropertyValue('--bg') || '').trim() || cs.backgroundColor || '';
+        var r = null, g = null, b = null;
+        if(raw.charAt(0) === '#'){
+          var hex = raw.slice(1);
+          var full = hex.length === 3 ? hex.charAt(0)+hex.charAt(0)+hex.charAt(1)+hex.charAt(1)+hex.charAt(2)+hex.charAt(2) : hex;
+          r = parseInt(full.slice(0,2),16); g = parseInt(full.slice(2,4),16); b = parseInt(full.slice(4,6),16);
+        } else {
+          var m = raw.match(/(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)/);
+          if(m){ r = +m[1]; g = +m[2]; b = +m[3]; }
+        }
+        if(r !== null && !isNaN(r)){ t = ((0.299*r + 0.587*g + 0.114*b) / 255 < 0.5) ? 'dark' : 'light'; }
+      }catch(e2){}
+    }
     if(!t){ t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light'; }
     document.documentElement.setAttribute('data-theme', t);
   }catch(e){ document.documentElement.setAttribute('data-theme', 'light'); }
@@ -16,32 +33,32 @@
 </script>
 <style>
   :root{
-    --bg:#ffffff; --bg2:#f7f8fa; --bg3:#eef1f6; --bg-float:#ffffff;
-    --text:#1a1a2e; --text2:#4a5568; --text3:#8896ab;
-    --border:#dde3ed; --border2:rgba(0,0,0,.06);
+    /* 与框架 web/dist/assets/index.css 的 :root 变量保持一致:
+       iframe 是独立文档, 无法继承父页面 CSS 变量, 所以在此复刻同一套设计令牌 */
+    --bg:#ffffff; --bg2:#f8f9fa; --bg3:#f0f1f3; --bg-float:#ffffff;
+    --text:#1a1a2e; --text2:#4a4a6a; --text3:#8888a8;
+    --border:rgba(0,0,0,.08); --border2:rgba(0,0,0,.06);
     --accent:#5865f2; --accent-hover:#4752c4; --accent-light:#7289da;
-    --success:#10b981; --danger:#ef4444; --warning:#f59e0b; --info:#06b6d4;
-    --radius:10px; --radius-sm:7px; --radius-lg:14px;
-    --sidebar-bg:#f5f6f8;
-    --accent-soft:#eef0fe; --accent-line:#c5cbf7;
-    --success-soft:#e6f9f1; --danger-soft:#fde8e8; --warning-soft:#fef4e0;
-    --shadow:0 1px 3px rgba(0,0,0,.06);
-    --shadow-md:0 4px 12px rgba(0,0,0,.08);
-    --shadow-lg:0 10px 28px rgba(0,0,0,.14);
+    --success:#23a559; --danger:#f23f43; --warning:#f0b232; --info:#00a8fc;
+    --radius:12px; --radius-sm:8px; --radius-lg:16px;
+    --accent-soft:rgba(88,101,242,.12); --accent-line:rgba(88,101,242,.30);
+    --success-soft:rgba(35,165,89,.12); --danger-soft:rgba(242,63,67,.12); --warning-soft:rgba(240,178,50,.14);
+    --shadow-sm:0 1px 2px rgba(16,24,40,.05); --shadow-hover:0 4px 14px rgba(16,24,40,.10);
+    --shadow:var(--shadow-sm); --shadow-md:var(--shadow-hover);
+    --shadow-lg:0 12px 32px rgba(16,24,40,.16);
+    --cc:#5865f2; --cb:var(--accent-soft);
   }
   /* ==================== 深色主题 ==================== */
   [data-theme="dark"]{
-    --bg:#1e2128; --bg2:#16181d; --bg3:#2a2e37; --bg-float:#252932;
+    --bg:#16181d; --bg2:#1e2128; --bg3:#2a2e37; --bg-float:#252932;
     --text:#e6e9ef; --text2:#aab3c2; --text3:#7c8699;
-    --border:#2f343f; --border2:rgba(255,255,255,.07);
+    --border:rgba(255,255,255,.10); --border2:rgba(255,255,255,.07);
     --accent:#6d79f7; --accent-hover:#5865f2; --accent-light:#8b9bf0;
     --success:#34d399; --danger:#f87171; --warning:#fbbf24; --info:#22d3ee;
-    --sidebar-bg:#191c22;
-    --accent-soft:#2b2f4d; --accent-line:#3b416b;
-    --success-soft:#123029; --danger-soft:#3a1f1f; --warning-soft:#362913;
-    --shadow:0 1px 3px rgba(0,0,0,.35);
-    --shadow-md:0 4px 12px rgba(0,0,0,.45);
-    --shadow-lg:0 10px 28px rgba(0,0,0,.55);
+    --accent-soft:rgba(109,121,247,.18); --accent-line:rgba(109,121,247,.34);
+    --success-soft:rgba(52,211,153,.14); --danger-soft:rgba(248,113,113,.16); --warning-soft:rgba(251,191,36,.16);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.40); --shadow-hover:0 6px 18px rgba(0,0,0,.50);
+    --shadow-lg:0 14px 34px rgba(0,0,0,.60);
   }
   [data-theme="dark"] tr:hover td{background:#272b34}
   [data-theme="dark"] .backup-item:hover{background:#21252d}
@@ -59,69 +76,93 @@
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:rgba(100,116,139,.25);border-radius:3px}
 
-  .eb-page{height:100vh;display:flex;overflow:hidden}
-  .eb-sidebar{width:160px;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .2s ease}
-  .eb-sidebar.collapsed{width:48px}
-  .eb-sidebar.collapsed .nav-label,.eb-sidebar.collapsed .side-title,.eb-sidebar.collapsed .nav-badge,.eb-sidebar.collapsed .collapse-label{display:none}
-  .eb-sidebar.collapsed .nav-item{justify-content:center;padding:9px 0}
-  .eb-sidebar.collapsed .side-brand{justify-content:center}
-  .eb-sidebar.collapsed .side-brand .logo{margin:0}
+  /* ==================== 页面骨架 (复刻框架 CustomPage iframe 布局) ==================== */
+  .eb-page{display:flex;flex-direction:column;gap:16px;min-height:100vh;max-width:1360px;margin:0 auto;padding:16px 18px 22px}
+  /* 页头: 对齐框架 .ui-page-head */
+  .ui-page-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .ui-page-head-main{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+  .ui-page-icon{width:42px;height:42px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--accent);background:var(--accent-soft)}
+  .ui-page-icon svg{width:21px;height:21px}
+  .ui-page-title{font-size:21px;font-weight:700;color:var(--text);line-height:1.2;margin:0}
+  .ui-page-sub{font-size:13px;color:var(--text3);margin-top:3px}
+  .ui-page-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
+  /* 胶囊导航: 对齐框架 .ui-pills / .ui-pill */
+  .ui-pills{display:flex;gap:6px;flex-wrap:wrap}
+  .ui-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;border:none;background:transparent;color:var(--text2);font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s,color .15s,box-shadow .15s}
+  .ui-pill:hover{background:var(--bg3);color:var(--text)}
+  .ui-pill.active{background:var(--accent);color:#fff;box-shadow:0 2px 8px var(--accent-soft)}
+  .ui-pill .nav-badge{font-size:10px;font-weight:700;border-radius:20px;padding:1px 6px;min-width:18px;text-align:center;background:var(--bg3);color:var(--text2);line-height:16px}
+  .ui-pill.active .nav-badge{background:rgba(255,255,255,.22);color:#fff}
+  /* 统计卡片: 对齐框架 .ui-stat-grid / .ui-stat */
+  .ui-stat-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+  .ui-stat{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);padding:14px 16px;overflow:hidden;transition:transform .15s,box-shadow .15s,border-color .15s}
+  .ui-stat:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+  .ui-stat-top{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .ui-stat-ic{width:30px;height:30px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--cc);background:var(--cb)}
+  .ui-stat-ic svg{width:16px;height:16px}
+  .ui-stat-label{font-size:12.5px;color:var(--text2);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ui-stat-val{font-size:25px;font-weight:800;line-height:1.1;letter-spacing:-.5px;color:var(--cc)}
+  .ui-stat-foot{margin-top:6px;font-size:11px;color:var(--text3)}
+  .c-blue{--cc:#3b7bf7;--cb:rgba(59,123,247,.12)}
+  .c-green{--cc:#22c55e;--cb:rgba(34,197,94,.12)}
+  .c-red{--cc:#ef4444;--cb:rgba(239,68,68,.12)}
+  .c-purple{--cc:#8b5cf6;--cb:rgba(139,92,246,.12)}
+  .c-orange{--cc:#f59e0b;--cb:rgba(245,158,11,.14)}
+  .c-teal{--cc:#14b8a6;--cb:rgba(20,184,166,.12)}
+  .c-pink{--cc:#ec4899;--cb:rgba(236,72,153,.12)}
+  .c-cyan{--cc:#06b6d4;--cb:rgba(6,182,212,.12)}
+  /* 小节标题: 对齐框架 .ui-sec-head */
+  .ui-sec-head{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .ui-sec-icon{width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--accent);background:var(--accent-soft)}
+  .ui-sec-icon svg{width:15px;height:15px}
+  .ui-sec-title{font-size:15px;font-weight:700;color:var(--text)}
+  .ui-sec-note{margin-left:auto;font-size:11.5px;color:var(--text3)}
+  .eb-content{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .range-grid{display:flex;flex-wrap:wrap;gap:8px}
+  .range-chip{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);font-size:12.5px;color:var(--text2)}
+  .range-chip b{color:var(--text);font-weight:600}
+  .range-chip .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+  /* 可点击选择的范围标签 (新建备份页的自定义选择) */
+  .pick-chip{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);font-size:12.5px;color:var(--text2);cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s}
+  .pick-chip:hover{border-color:var(--accent);color:var(--text)}
+  .pick-chip b{color:var(--text);font-weight:600}
+  .pick-chip .dot{width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .15s}
+  .pick-chip.on{border-color:var(--accent);background:var(--accent-soft)}
+  .pick-chip.on .dot{background:var(--success)}
+  .pick-tools{display:flex;gap:6px;margin-left:10px}
 
-  .side-header{padding:10px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
-  .side-brand{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
-  .logo{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--accent),var(--accent-light));color:#fff;flex-shrink:0}
-  .logo svg{width:15px;height:15px}
-  .side-title{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-
-  .eb-nav{flex:1;overflow-y:auto;padding:6px}
-  .nav-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:7px;cursor:pointer;transition:all .12s;color:var(--text2);font-size:12px;margin-bottom:1px;font-weight:500;user-select:none}
-  .nav-item:hover{background:var(--accent-soft);color:var(--text)}
-  .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600;border:1px solid var(--accent-line)}
-  .nav-item svg{width:16px;height:16px;flex-shrink:0;stroke-width:1.8}
-  .nav-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .nav-badge{font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:20px;padding:1px 6px;min-width:18px;text-align:center;line-height:16px;border:1px solid var(--accent-line)}
-  .nav-divider{height:1px;background:var(--border);margin:5px 8px}
-
-  .side-footer{padding:8px;border-top:1px solid var(--border)}
-  .collapse-btn{width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;color:var(--text3);font-size:11px}
-  .collapse-btn:hover{background:var(--bg3);color:var(--text2)}
-  .collapse-btn svg{width:13px;height:13px;transition:transform .2s}
-  .eb-sidebar.collapsed .collapse-btn svg{transform:rotate(180deg)}
-
-  .eb-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-  .eb-header{padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg)}
-  .eb-header h1{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
-  .header-right{display:flex;gap:6px;align-items:center}
-  .eb-content{flex:1;overflow-y:auto;padding:16px 20px}
-
-  .btn{padding:6px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg);color:var(--text);font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .12s;text-decoration:none;white-space:nowrap}
-  .btn:hover:not(:disabled){border-color:var(--accent-line);background:var(--bg3);color:var(--text)}
-  .btn:active:not(:disabled){transform:translateY(1px)}
-  .btn:disabled{opacity:.45;cursor:not-allowed}
-  .btn-pri{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .btn-pri:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover)}
-  .btn-success{background:var(--success-soft);color:#059669;border:1px solid #a7f3d0}
-  .btn-success:hover:not(:disabled){background:#d1fae5;color:#047857}
-  .btn-danger{background:#fde8e8;color:#dc2626;border:1px solid #f5c6c6}
-  .btn-danger:hover:not(:disabled){background:#fbd5d5;color:#b91c1c}
-  .btn-warning{background:var(--warning-soft);color:#b45309;border:1px solid #f5d89a}
-  .btn-warning:hover:not(:disabled){background:#fde9c8;color:#92400e}
-  .btn-sm{padding:4px 8px;font-size:11px}
-  .btn-xs{padding:3px 6px;font-size:10px}
-  .btn svg{width:14px;height:14px}
+  /* 按钮: 对齐框架 .ui-btn / .ui-btn-ghost, 同时保留旧 .btn 类供动态模板复用 */
+  .ui-btn,.btn{padding:8px 16px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background .15s,opacity .15s,border-color .15s;text-decoration:none;white-space:nowrap;font-family:inherit}
+  .ui-btn:hover:not(:disabled),.btn:hover:not(:disabled){background:var(--accent-hover);color:#fff}
+  .ui-btn:disabled,.btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn{background:var(--bg2);color:var(--text2);border:1px solid var(--border);box-shadow:var(--shadow-sm)}
+  .btn:hover:not(:disabled){background:var(--bg3);color:var(--text);border-color:var(--border)}
+  .ui-btn-ghost,.btn-ghost{background:var(--bg2)!important;color:var(--text2)!important;border:1px solid var(--border)!important;box-shadow:var(--shadow-sm)}
+  .ui-btn-ghost:hover:not(:disabled),.btn-ghost:hover:not(:disabled){background:var(--bg3)!important;color:var(--text)!important}
+  .btn-pri{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)}
+  .btn-pri:hover:not(:disabled){background:var(--accent-hover)!important;border-color:var(--accent-hover)!important}
+  .btn-success{background:var(--success-soft);color:var(--success);border:1px solid var(--success-soft)}
+  .btn-success:hover:not(:disabled){background:var(--success-soft);color:var(--success);filter:brightness(1.08)}
+  .btn-danger{background:var(--danger-soft);color:var(--danger);border:1px solid var(--danger-soft)}
+  .btn-danger:hover:not(:disabled){background:var(--danger-soft);color:var(--danger);filter:brightness(1.08)}
+  .btn-warning{background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-soft)}
+  .btn-warning:hover:not(:disabled){background:var(--warning-soft);color:var(--warning);filter:brightness(1.08)}
+  .btn-sm{padding:6px 12px;font-size:12px;border-radius:9px}
+  .btn-xs{padding:4px 8px;font-size:11px;border-radius:8px}
+  .btn svg,.ui-btn svg{width:14px;height:14px}
 
   .page{display:none}
   .page.on{display:block}
 
-  .card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:12px}
-  .card-title{font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-sm);margin-bottom:0}
+  .card-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px}
   .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 
-  .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);margin-bottom:8px}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);margin-bottom:8px}
   .toggle-info{flex:1;min-width:0}
   .toggle-title{font-weight:600;font-size:13px;color:var(--text)}
-  .toggle-desc{font-size:11px;color:var(--text3);line-height:1.4;margin-top:2px}
+  .toggle-desc{font-size:11.5px;color:var(--text3);line-height:1.45;margin-top:2px}
 
   .field{margin-bottom:10px}
   .field label{display:block;font-weight:600;font-size:12px;margin-bottom:3px;color:var(--text)}
@@ -149,8 +190,8 @@
   .empty{text-align:center;padding:28px 16px;color:var(--text3);font-size:12px}
 
   .notice{padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:10px;line-height:1.5}
-  .notice.info{background:var(--accent-soft);color:#4752c4;border:1px solid var(--accent-line)}
-  .notice.warn{background:var(--warning-soft);color:#b45309;border:1px solid #f5d89a}
+  .notice.info{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line)}
+  .notice.warn{background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-soft)}
 
   .toast-container {
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -197,9 +238,9 @@
   .info-row .value{color:var(--text);font-weight:600}
   .badge{display:inline-block;padding:2px 10px;border-radius:6px;font-size:11px;font-weight:600}
   .badge-blue{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line)}
-  .badge-green{background:var(--success-soft);color:#059669;border:1px solid #a7f3d0}
-  .badge-purple{background:#f5e8fe;color:#7e22ce;border:1px solid #d8b4fe}
-  .badge-orange{background:var(--warning-soft);color:#b45309;border:1px solid #f5d89a}
+  .badge-green{background:var(--success-soft);color:var(--success);border:1px solid var(--success-soft)}
+  .badge-purple{background:rgba(139,92,246,.14);color:#8b5cf6;border:1px solid rgba(139,92,246,.24)}
+  .badge-orange{background:var(--warning-soft);color:var(--warning);border:1px solid var(--warning-soft)}
   .backup-list{max-height:400px;overflow-y:auto}
   .backup-item{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border2);gap:12px;transition:background .15s}
   .backup-item:hover{background:#f8fafc}
@@ -241,11 +282,18 @@
 
   .cloud-file-list{max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)}
 
+  @media(max-width:1200px){
+    .ui-stat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+  }
   @media(max-width:768px){
-    .eb-sidebar{width:48px}
-    .side-title,.nav-label,.nav-badge,.collapse-label{display:none}
-    .nav-item{justify-content:center;padding:9px 0}
-    .eb-content{padding:12px}
+    .eb-page{padding:12px 12px 18px;gap:12px}
+    .ui-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .ui-stat{padding:12px 14px}
+    .ui-stat-val{font-size:21px}
+    .ui-page-title{font-size:18px}
+    .ui-page-icon{width:36px;height:36px}
+    .ui-page-sub{font-size:12px}
+    .ui-page-actions{width:100%}
     .grid-2,.grid-3{grid-template-columns:1fr}
     .preview-grid{grid-template-columns:1fr}
     .info-grid{grid-template-columns:1fr}
@@ -254,135 +302,154 @@
 </head>
 <body>
 <div class="eb-page">
-  <div class="eb-sidebar" id="eb-sidebar">
-    <div class="side-header">
-      <div class="side-brand">
-        <span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M9 3v18"/><path d="M3 9h18"/></svg></span>
-        <span class="side-title">备份工具</span>
+  <header class="ui-page-head">
+    <div class="ui-page-head-main">
+      <span class="ui-page-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+      <div style="min-width:0">
+        <h1 class="ui-page-title" id="page-title">总览面板</h1>
+        <div class="ui-page-sub" id="page-sub">备份范围: 所选插件 + 模块的数据文件与配置文件 (可分别开关)</div>
       </div>
     </div>
-    <div class="eb-nav">
-      <div class="nav-item active" data-page="dashboard" onclick="go('dashboard')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        <span class="nav-label">总览面板</span>
-      </div>
-      <div class="nav-item" data-page="create" onclick="go('create')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <span class="nav-label">新建备份</span>
-      </div>
-      <div class="nav-item" data-page="import" onclick="go('import')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span class="nav-label">导入备份</span>
-      </div>
-      <div class="nav-divider"></div>
-      <div class="nav-item" data-page="history" onclick="go('history')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        <span class="nav-label">备份历史</span>
-        <span class="nav-badge" id="b-backups">0</span>
-      </div>
-      <div class="nav-divider"></div>
-      <div class="nav-item" data-page="cloud" onclick="go('cloud')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-        <span class="nav-label">云盘备份</span>
-        <span class="nav-badge" id="b-cloud">0</span>
-      </div>
-      <div class="nav-item" data-page="cloud_files" onclick="go('cloud_files')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <span class="nav-label">云盘文件</span>
-      </div>
+    <div class="ui-page-actions">
+      <button class="ui-btn ui-btn-ghost btn-sm" id="themeToggle" onclick="toggleTheme()" title="切换深色 / 浅色主题"></button>
+      <button class="ui-btn ui-btn-ghost btn-sm" onclick="refreshCurrent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>
     </div>
-    <div class="side-footer">
-      <button class="collapse-btn" onclick="document.getElementById('eb-sidebar').classList.toggle('collapsed')" title="收起">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
-        <span class="collapse-label">收起</span>
-      </button>
-    </div>
-  </div>
+  </header>
 
-  <div class="eb-main">
-    <div class="eb-header">
-      <h1 id="page-title">总览面板</h1>
-      <div class="header-right">
-        <button class="btn btn-sm" id="themeToggle" onclick="toggleTheme()" title="切换深色 / 浅色主题"></button>
-        <button class="btn btn-sm" onclick="refreshCurrent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>
-      </div>
-    </div>
-    <div class="eb-content">
+  <nav class="ui-pills">
+    <button class="ui-pill active" data-page="dashboard" onclick="go('dashboard')">总览面板</button>
+    <button class="ui-pill" data-page="create" onclick="go('create')">新建备份</button>
+    <button class="ui-pill" data-page="import" onclick="go('import')">导入恢复</button>
+    <button class="ui-pill" data-page="history" onclick="go('history')">备份历史<span class="nav-badge" id="b-backups">0</span></button>
+    <button class="ui-pill" data-page="cloud" onclick="go('cloud')">云盘备份<span class="nav-badge" id="b-cloud">0</span></button>
+    <button class="ui-pill" data-page="cloud_files" onclick="go('cloud_files')">云盘文件</button>
+  </nav>
+
+  <main class="eb-content">
 
       <div class="page on" id="page-dashboard">
-        <div class="notice info" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <svg style="width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          <span>备份存放位置:</span>
-          <code id="locPath" style="background:var(--bg3);padding:3px 10px;border-radius:4px;font-size:11px;font-family:monospace;flex:1;min-width:200px;word-break:break-all">加载中...</code>
-          <button class="btn btn-xs" onclick="copyPath()"><svg style="width:12px;height:12px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制</button>
+        <div class="ui-stat-grid" style="margin-bottom:14px">
+          <div class="ui-stat c-blue">
+            <div class="ui-stat-top"><span class="ui-stat-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span class="ui-stat-label">历史备份</span></div>
+            <div class="ui-stat-val" id="statBackups">0</div>
+            <div class="ui-stat-foot">本地 ZIP 文件</div>
+          </div>
+          <div class="ui-stat c-purple">
+            <div class="ui-stat-top"><span class="ui-stat-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span><span class="ui-stat-label">插件数据</span></div>
+            <div class="ui-stat-val" id="statPlugins">0</div>
+            <div class="ui-stat-foot" id="statPluginsFoot">加载中...</div>
+          </div>
+          <div class="ui-stat c-teal">
+            <div class="ui-stat-top"><span class="ui-stat-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span><span class="ui-stat-label">插件源码/配置</span></div>
+            <div class="ui-stat-val" id="statPluginSrc">0</div>
+            <div class="ui-stat-foot" id="statPluginSrcFoot">加载中...</div>
+          </div>
+          <div class="ui-stat c-green">
+            <div class="ui-stat-top"><span class="ui-stat-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span><span class="ui-stat-label">模块数据</span></div>
+            <div class="ui-stat-val" id="statModules">0</div>
+            <div class="ui-stat-foot" id="statModulesFoot">加载中...</div>
+          </div>
+          <div class="ui-stat c-orange">
+            <div class="ui-stat-top"><span class="ui-stat-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg></span><span class="ui-stat-label">模块源码/配置</span></div>
+            <div class="ui-stat-val" id="statModuleSrc">0</div>
+            <div class="ui-stat-foot" id="statModuleSrcFoot">加载中...</div>
+          </div>
         </div>
-        <div class="grid-3" style="margin-bottom:16px">
-          <div class="card" style="margin-bottom:0;text-align:center">
-            <div style="font-size:28px;font-weight:700;color:var(--accent)" id="statBackups">0</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">备份数量</div>
-          </div>
-          <div class="card" style="margin-bottom:0;text-align:center">
-            <div style="font-size:28px;font-weight:700;color:var(--success)" id="statConfigs">0</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">配置文件</div>
-          </div>
-          <div class="card" style="margin-bottom:0;text-align:center">
-            <div style="font-size:28px;font-weight:700;color:var(--warning)" id="statData">0</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">数据文件</div>
-          </div>
-        </div>
+
         <div class="card">
-          <div class="card-title">磁盘使用情况</div>
-          <div class="grid-2" style="gap:10px">
-            <div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2)">
-              <div style="font-size:11px;color:var(--text3)">已用空间</div>
-              <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:4px" id="diskUsed">-</div>
-            </div>
-            <div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2)">
-              <div style="font-size:11px;color:var(--text3)">可用空间</div>
-              <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:4px" id="diskFree">-</div>
-            </div>
+          <div class="ui-sec-head">
+            <span class="ui-sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="ui-sec-title">备份存放位置</span>
+            <span class="ui-sec-note"><button class="btn btn-xs" onclick="copyPath()">复制路径</button></span>
           </div>
-          <div style="margin-top:12px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px"><span>使用率</span><span id="diskPercent">0%</span></div>
-            <div style="background:var(--bg3);border-radius:8px;height:8px;overflow:hidden;border:1px solid var(--border)">
-              <div id="diskBar" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:8px;transition:width .5s;width:0%"></div>
-            </div>
+          <code id="locPath" style="display:block;background:var(--bg);border:1px solid var(--border);padding:9px 12px;border-radius:var(--radius-sm);font-size:11.5px;font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;color:var(--text2)">加载中...</code>
+          <div class="range-grid" style="margin-top:10px">
+            <span class="range-chip"><span class="dot"></span>数据文件 <b>可选</b></span>
+            <span class="range-chip"><span class="dot"></span>配置文件 <b>可选</b></span>
+            <span class="range-chip">起始全选 · 插件 / 模块与内容类型都可自定义</span>
           </div>
         </div>
-        <div class="card">
-          <div class="card-title">快捷操作</div>
-          <div class="bar">
-            <button class="btn btn-pri" onclick="go('create')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建备份</button>
-            <button class="btn" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导入备份</button>
-            <button class="btn" onclick="go('cloud')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>云盘备份</button>
-            <button class="btn" onclick="refreshCurrent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="ui-sec-head">
+              <span class="ui-sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+              <span class="ui-sec-title">磁盘使用情况</span>
+              <span class="ui-sec-note" id="diskPercent">0%</span>
+            </div>
+            <div class="grid-2" style="gap:10px">
+              <div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg)">
+                <div style="font-size:11.5px;color:var(--text3)">已用空间</div>
+                <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:4px" id="diskUsed">-</div>
+              </div>
+              <div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg)">
+                <div style="font-size:11.5px;color:var(--text3)">可用空间</div>
+                <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:4px" id="diskFree">-</div>
+              </div>
+            </div>
+            <div style="margin-top:12px">
+              <div style="background:var(--bg3);border-radius:8px;height:8px;overflow:hidden;border:1px solid var(--border)">
+                <div id="diskBar" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-light));border-radius:8px;transition:width .5s;width:0%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ui-sec-head">
+              <span class="ui-sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+              <span class="ui-sec-title">快捷操作</span>
+            </div>
+            <div class="bar" style="margin-bottom:0">
+              <button class="ui-btn" onclick="go('create')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建备份</button>
+              <button class="btn" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导入恢复</button>
+              <button class="btn" onclick="go('cloud')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>云盘备份</button>
+              <button class="btn" onclick="refreshCurrent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="page" id="page-create">
         <div class="card">
-          <div class="card-title">备份选项</div>
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <div class="toggle-title">配置文件</div>
-              <div class="toggle-desc">config/ 目录下的所有 YAML 配置</div>
-            </div>
-            <input type="checkbox" id="optConfig" checked>
+          <div class="ui-sec-head">
+            <span class="ui-sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></span>
+            <span class="ui-sec-title">备份内容</span>
+            <span class="ui-sec-note">数据文件 / 配置文件可分别开关, 点击标签切换 (默认都选)</span>
           </div>
-          <div class="toggle-row">
-            <div class="toggle-info">
-              <div class="toggle-title">数据文件</div>
-              <div class="toggle-desc">data/ 目录下的所有插件数据</div>
-            </div>
-            <input type="checkbox" id="optData" checked>
-          </div>
-          <div style="margin-top:12px;padding:10px;background:var(--bg2);border-radius:var(--radius-sm);font-size:13px;color:var(--text2);border:1px solid var(--border)">
-            <span id="optConfigInfo">加载中...</span> &nbsp;·&nbsp; <span id="optDataInfo">加载中...</span>
+          <div class="range-grid">
+            <span class="pick-chip on" id="optDataChip" data-key="data" onclick="toggleContent('data')"><span class="dot"></span>数据文件 <b id="optDataSummary">加载中...</b></span>
+            <span class="pick-chip on" id="optConfigChip" data-key="config" onclick="toggleContent('config')"><span class="dot"></span>配置文件 <b id="optConfigSummary">加载中...</b></span>
           </div>
         </div>
-        <div class="bar" style="margin-top:12px">
-          <button class="btn btn-pri" onclick="doBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>开始备份</button>
+
+        <div class="card">
+          <div class="ui-sec-head">
+            <span class="ui-sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="ui-sec-title">选择要备份的插件</span>
+            <span class="ui-sec-note" id="optPluginInfo">加载中...</span>
+            <span class="pick-tools">
+              <button class="btn btn-xs" onclick="pickAll('plugins',true)">全选</button>
+              <button class="btn btn-xs" onclick="pickAll('plugins',false)">清空</button>
+            </span>
+          </div>
+          <div class="range-grid" id="optPluginList" style="max-height:220px;overflow:auto;align-content:flex-start"></div>
+        </div>
+
+        <div class="card">
+          <div class="ui-sec-head">
+            <span class="ui-sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
+            <span class="ui-sec-title">选择要备份的模块</span>
+            <span class="ui-sec-note" id="optModuleInfo">加载中...</span>
+            <span class="pick-tools">
+              <button class="btn btn-xs" onclick="pickAll('modules',true)">全选</button>
+              <button class="btn btn-xs" onclick="pickAll('modules',false)">清空</button>
+            </span>
+          </div>
+          <div class="range-grid" id="optModuleList" style="max-height:220px;overflow:auto;align-content:flex-start"></div>
+        </div>
+
+        <div class="bar" style="margin-top:2px;gap:12px">
+          <button class="ui-btn" onclick="doBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>开始备份</button>
+          <span class="muted">仅打包所选插件 / 模块的「数据文件」与/或「配置文件」(含 panel.html、json/yaml、资源等)，不含框架 config/ 与项目根 data/</span>
         </div>
       </div>
 
@@ -461,8 +528,7 @@
         </div>
       </div>
 
-    </div>
-  </div>
+  </main>
 </div>
 
 <div class="modal-overlay" id="modalOverlay">
@@ -517,16 +583,25 @@ function openModal(title, content, type='info', footer=''){
 function closeModal(){ $('modalOverlay').classList.remove('active'); }
 $('modalOverlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
 
-const TITLES = {dashboard:'总览面板', create:'新建备份', import:'导入备份', history:'备份历史', cloud:'云盘备份', cloud_files:'云盘文件'};
+const TITLES = {dashboard:'总览面板', create:'新建备份', import:'导入恢复', history:'备份历史', cloud:'云盘备份', cloud_files:'云盘文件'};
+const SUBS = {
+  dashboard:'备份范围: 所选插件 + 模块的数据文件与配置文件',
+  create:'数据文件 / 配置文件可分别开关, 可在下方自定义选择要备份的插件与模块',
+  import:'上传 ZIP 备份文件, 预览内容后一键恢复',
+  history:'本地备份列表: 上传云盘 / 下载 / 删除',
+  cloud:'WebDAV / S3 兼容 / FTP 云盘配置与备份上传',
+  cloud_files:'浏览云盘中的备份文件, 支持下载与删除'
+};
 let PAGE = 'dashboard';
 
 function go(page){
   PAGE = page;
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.ui-pill').forEach(el => el.classList.toggle('active', el.dataset.page === page));
   document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
   const el = $('page-'+page);
   if(el) el.classList.add('on');
   $('page-title').textContent = TITLES[page] || page;
+  const sub = $('page-sub'); if(sub) sub.textContent = SUBS[page] || SUBS.dashboard;
   if(page==='dashboard') loadStatus();
   if(page==='create') loadCreateOpts();
   if(page==='history') refreshHistory();
@@ -549,8 +624,15 @@ async function loadStatus(){
       fetch(API+'/stats').then(r=>r.json())
     ]);
     $('statBackups').textContent = stats.backup_count || 0;
-    $('statConfigs').textContent = stats.config_count || 0;
-    $('statData').textContent = stats.data_count || 0;
+    // 插件 / 模块统计: 主数值为「有数据的条目数」, 脚注给出文件数与体积
+    $('statPlugins').textContent = stats.plugin_with_data_count || 0;
+    $('statPluginsFoot').textContent = `${stats.plugin_file_count||0} 个文件 · ${stats.plugin_size_readable||fmtSize(stats.plugin_size||0)}`;
+    $('statPluginSrc').textContent = stats.plugin_src_count || 0;
+    $('statPluginSrcFoot').textContent = `${stats.plugin_src_file_count||0} 个文件 · ${stats.plugin_src_size_readable||fmtSize(stats.plugin_src_size||0)}`;
+    $('statModules').textContent = stats.module_with_data_count || 0;
+    $('statModulesFoot').textContent = `${stats.module_file_count||0} 个文件 · ${stats.module_size_readable||fmtSize(stats.module_size||0)}`;
+    $('statModuleSrc').textContent = stats.module_src_count || 0;
+    $('statModuleSrcFoot').textContent = `${stats.module_src_file_count||0} 个文件 · ${stats.module_src_size_readable||fmtSize(stats.module_src_size||0)}`;
     $('locPath').textContent = stats.backup_location || '未知';
     $('b-backups').textContent = stats.backup_count || 0;
     const du = stats.disk_usage || {};
@@ -583,6 +665,10 @@ async function loadStatus(){
             ${esc(b.filename)}
             ${b.info?.config_count ? `<span class="badge badge-blue">${b.info.config_count} 配置</span>` : ''}
             ${b.info?.data_count ? `<span class="badge badge-green">${b.info.data_count} 数据</span>` : ''}
+            ${b.info?.plugin_file_count ? `<span class="badge badge-purple">${b.info.plugin_count||0} 插件/${b.info.plugin_file_count} 文件</span>` : ''}
+            ${b.info?.module_file_count ? `<span class="badge badge-blue">${b.info.module_count||0} 模块/${b.info.module_file_count} 文件</span>` : ''}
+            ${b.info?.plugin_src_file_count ? `<span class="badge badge-purple">插件源码/配置 ${b.info.plugin_src_file_count} 个文件</span>` : ''}
+            ${b.info?.module_src_file_count ? `<span class="badge badge-blue">模块源码/配置 ${b.info.module_src_file_count} 个文件</span>` : ''}
             ${syncBadges}
           </div>
           <div class="meta">
@@ -604,22 +690,111 @@ async function loadStatus(){
 }
 function refreshHistory(){ go('history'); }
 
+let pluginItems = [], moduleItems = [];
+let pickInited = false;
+const picked = { plugins: new Set(), modules: new Set() };
+// 内容类型开关: 数据文件 (插件 / 模块 data 运行数据) 与 配置文件 (除 data/ 外的源码与自带配置)
+const contentPick = { data: true, config: true };
+
+function itemsOf(kind){ return kind === 'plugins' ? pluginItems : moduleItems; }
+function pickChip(kind, it){
+  const on = picked[kind].has(it.name);
+  const src = it.src_file_count ? ` · 配置 ${it.src_file_count} 文件` : '';
+  return `<span class="pick-chip${on?' on':''}" data-kind="${kind}" data-name="${esc(it.name)}" onclick="togglePick(this)">`
+    + `<span class="dot"></span><b>${esc(it.name)}</b>`
+    + `<span style="color:var(--text3)">数据 ${it.file_count||0} 文件 · ${fmtSize(it.size||0)}${src}</span></span>`;
+}
+function renderPickList(kind){
+  const items = itemsOf(kind);
+  const box = kind === 'plugins' ? $('optPluginList') : $('optModuleList');
+  box.innerHTML = items.length
+    ? items.map(it => pickChip(kind, it)).join('')
+    : `<span class="muted">暂无可备份的${kind === 'plugins' ? '插件' : '模块'}</span>`;
+  updatePickInfo(kind);
+}
+function updatePickInfo(kind){
+  const items = itemsOf(kind);
+  const sel = items.filter(it => picked[kind].has(it.name));
+  const files = sel.reduce((a, b) => a + (b.file_count||0), 0);
+  const src = sel.reduce((a, b) => a + (b.src_file_count||0), 0);
+  const size = sel.reduce((a, b) => a + (b.size||0) + (b.src_size||0), 0);
+  const info = kind === 'plugins' ? $('optPluginInfo') : $('optModuleInfo');
+  info.textContent = items.length
+    ? `已选 ${sel.length}/${items.length} 个 · 数据 ${files} 文件 / 配置 ${src} 个文件 / ${fmtSize(size)}`
+    : '无可选项';
+  updateContentSummary();
+}
+
+// 数据文件 / 配置文件开关: 只统计「已选插件 / 模块」范围内的体积
+function updateContentSummary(){
+  let df = 0, ds = 0, cf = 0, cs = 0;
+  for(const kind of ['plugins', 'modules']){
+    for(const it of itemsOf(kind)){
+      if(!picked[kind].has(it.name)) continue;
+      df += it.file_count || 0;  ds += it.size || 0;
+      cf += it.src_file_count || 0; cs += it.src_size || 0;
+    }
+  }
+  $('optDataSummary').textContent = `${df} 个文件 (${fmtSize(ds)})`;
+  $('optConfigSummary').textContent = `${cf} 个文件 (${fmtSize(cs)})`;
+  $('optDataChip').classList.toggle('on', contentPick.data);
+  $('optConfigChip').classList.toggle('on', contentPick.config);
+}
+function toggleContent(kind){
+  contentPick[kind] = !contentPick[kind];
+  updateContentSummary();
+  if(!contentPick.data && !contentPick.config) showToast('数据文件与配置文件都关闭时无法备份', 'error');
+}
+function togglePick(el){
+  const kind = el.dataset.kind, name = el.dataset.name;
+  if(!picked[kind]) return;
+  if(picked[kind].has(name)) picked[kind].delete(name);
+  else picked[kind].add(name);
+  el.classList.toggle('on', picked[kind].has(name));
+  updatePickInfo(kind);
+}
+function pickAll(kind, on){
+  picked[kind] = new Set(on ? itemsOf(kind).map(it => it.name) : []);
+  renderPickList(kind);
+}
+
 async function loadCreateOpts(){
   try{
     const s = await fetch(API+'/stats').then(r=>r.json());
-    $('optConfigInfo').innerHTML = `配置文件 ${s.config_count||0} 个 (${fmtSize(s.config_size||0)})`;
-    $('optDataInfo').innerHTML = `数据文件 ${s.data_count||0} 个 (${fmtSize(s.data_size||0)})`;
+    pluginItems = s.plugins || [];
+    moduleItems = s.modules || [];
+    // 首次进入默认全选, 之后保留用户已有的勾选 (并剔除已不存在的项)
+    if(!pickInited){
+      picked.plugins = new Set(pluginItems.map(p=>p.name));
+      picked.modules = new Set(moduleItems.map(m=>m.name));
+      pickInited = true;
+    } else {
+      picked.plugins.forEach(n => { if(!pluginItems.some(p=>p.name===n)) picked.plugins.delete(n); });
+      picked.modules.forEach(n => { if(!moduleItems.some(m=>m.name===n)) picked.modules.delete(n); });
+    }
+    // 内容统计与开关状态由 updateContentSummary 统一维护 (renderPickList → updatePickInfo 内调用)
+    renderPickList('plugins');
+    renderPickList('modules');
   } catch(e){}
 }
 
 async function doBackup(){
-  const cfg = $('optConfig').checked;
-  const dt = $('optData').checked;
-  if(!cfg && !dt){ showToast('请至少选择一项', 'error'); return; }
+  const plugins = [...picked.plugins], modules = [...picked.modules];
+  if(!plugins.length && !modules.length){ showToast('请至少选择一个插件或模块', 'error'); return; }
+  if(!contentPick.data && !contentPick.config){ showToast('请至少勾选「数据文件」或「配置文件」', 'error'); return; }
+  // 全选时传 null (等价于全部), 部分选择时传名称数组; data / config 是内容类型开关
+  const body = JSON.stringify({
+    plugins: plugins.length === pluginItems.length ? null : plugins,
+    modules: modules.length === moduleItems.length ? null : modules,
+    data: contentPick.data,
+    config: contentPick.config,
+  });
   try{
-    const r = await fetch(API+'/backup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({include_config:cfg, include_data:dt})});
+    const scope = [contentPick.data ? '数据文件' : '', contentPick.config ? '配置文件' : ''].filter(Boolean).join(' + ');
+    showToast(`正在打包所选插件与模块 (${scope}), 请稍候...`, 'info');
+    const r = await fetch(API+'/backup', {method:'POST', headers:{'Content-Type':'application/json'}, body});
     const d = await r.json();
-    if(d.success){ showToast('备份成功: ' + d.filename, 'success'); loadStatus(); }
+    if(d.success){ showToast('备份成功: ' + d.filename, 'success'); loadCreateOpts(); loadStatus(); }
     else showToast('备份失败: ' + (d.error||'未知'), 'error');
   } catch(e){ showToast('备份失败: ' + e.message, 'error'); }
 }
@@ -657,6 +832,10 @@ async function uploadFile(file){
     if(info.created_at_readable && info.created_at_readable!=='未知') html += `<div class="preview-item"><span class="label">生成时间</span><span class="value">${esc(info.created_at_readable)}</span></div>`;
     if(info.config_count!==undefined) html += `<div class="preview-item"><span class="label">配置文件</span><span class="value">${info.config_count} 个</span></div>`;
     if(info.data_count!==undefined) html += `<div class="preview-item"><span class="label">数据文件</span><span class="value">${info.data_count} 个</span></div>`;
+    if(info.plugin_file_count!==undefined) html += `<div class="preview-item"><span class="label">插件数据</span><span class="value">${info.plugin_count||0} 个插件 / ${info.plugin_file_count} 个文件</span></div>`;
+    if(info.plugin_src_file_count!==undefined) html += `<div class="preview-item"><span class="label">插件源码/配置</span><span class="value">${info.plugin_src_count||0} 个插件 / ${info.plugin_src_file_count} 个文件</span></div>`;
+    if(info.module_file_count!==undefined) html += `<div class="preview-item"><span class="label">模块数据</span><span class="value">${info.module_count||0} 个模块 / ${info.module_file_count} 个文件</span></div>`;
+    if(info.module_src_file_count!==undefined) html += `<div class="preview-item"><span class="label">模块源码/配置</span><span class="value">${info.module_src_count||0} 个模块 / ${info.module_src_file_count} 个文件</span></div>`;
     if(info.file_size) html += `<div class="preview-item"><span class="label">文件大小</span><span class="value">${esc(info.file_size)}</span></div>`;
     if(info.total_size_readable) html += `<div class="preview-item"><span class="label">原始大小</span><span class="value">${esc(info.total_size_readable)}</span></div>`;
     if(info.version) html += `<div class="preview-item"><span class="label">备份版本</span><span class="value">v${esc(info.version)}</span></div>`;
@@ -711,6 +890,8 @@ async function doRestore(){
       let msg = '恢复成功！';
       if(res.restored_configs?.length) msg += ` 配置 ${res.restored_configs.length} 个`;
       if(res.restored_data?.length) msg += `，数据 ${res.restored_data.length} 个`;
+      if(res.restored_plugins?.length) msg += `，插件文件 ${res.restored_plugins.length} 个`;
+      if(res.restored_modules?.length) msg += `，模块文件 ${res.restored_modules.length} 个`;
       showToast(msg, 'success');
       $('previewBox').classList.remove('active');
       $('fileInput').value = '';
@@ -1006,9 +1187,31 @@ async function deleteCloudFile(pid, remotePath){
 }
 
 /* ==================== 主题切换 (深色 / 浅色) ==================== */
+/* iframe 与框架管理面板同源: 尝试从父页面的 CSS 变量推断框架当前主题,
+   让本页面默认与框架深浅色保持一致 (取不到则退回系统偏好) */
+function detectParentTheme(){
+  try{
+    const root = window.parent && window.parent.document && window.parent.document.documentElement;
+    if(!root) return null;
+    const cs = window.parent.getComputedStyle(root);
+    const raw = (cs.getPropertyValue('--bg') || '').trim() || cs.backgroundColor || '';
+    let r=null, g=null, b=null;
+    if(raw.startsWith('#')){
+      const hex = raw.slice(1);
+      const full = hex.length === 3 ? hex.split('').map(c=>c+c).join('') : hex;
+      r = parseInt(full.slice(0,2),16); g = parseInt(full.slice(2,4),16); b = parseInt(full.slice(4,6),16);
+    } else {
+      const m = raw.match(/(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)/);
+      if(m){ r = Number(m[1]); g = Number(m[2]); b = Number(m[3]); }
+    }
+    if(r===null || Number.isNaN(r)) return null;
+    const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+    return lum < 0.5 ? 'dark' : 'light';
+  }catch(e){ return null; }
+}
 function applyTheme(t){
   if(t!=='dark' && t!=='light'){
-    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    t = detectParentTheme() || ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
   }
   document.documentElement.setAttribute('data-theme', t);
   const btn = $('themeToggle');

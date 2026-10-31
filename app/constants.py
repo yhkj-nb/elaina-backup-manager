@@ -27,8 +27,8 @@ _ctx = _ctx_mod.ctx
 __plugin_meta__ = {
     'name': '重要信息备份与迁移工具',
     'author': 'yhkj-nb',
-    'description': '选择性备份和迁移 Bot 配置、框架配置、插件数据，支持上传至云盘',
-    'version': '2.1.0',
+    'description': '一键备份 / 迁移各插件与模块的数据文件 + 配置文件 (含备份工具自身, 可自定义选择插件/模块与内容类型), 支持上传至云盘',
+    'version': '2.7.0',
     'github': 'https://github.com/yhkj-nb/elaina-backup-manager',
     'license': 'MIT',
 }
@@ -89,7 +89,11 @@ DATA_DIR: Path = PLUGIN_DIR / 'data'
 # - providers:    云盘 provider 字典, 由 Web 面板管理
 # - last_used:    最近使用的 provider id (用户上次选了哪个网盘, 下次默认就用它)
 #
-# 注: 备份内容包含 config/ 目录 + data/ 目录是强制的, 不提供配置开关。
+# 注: 备份内容 = 所选插件 / 模块的「数据文件」(data/ 运行数据) + 「配置文件」
+#     (除 data/ 外的源码与自带配置/资源, 含 *.py、app/panel.html、json/yaml 等);
+#     两类内容在 Web 面板新建备份时可各自开关, 插件 / 模块也可自定义勾选;
+#     备份工具自身也在范围内 (源码 + data/ 配置, 会跳过其生成的 backup_*.zip);
+#     不含框架 config/ 与项目根 data/。
 DEFAULT_CONFIG: Dict[str, Any] = {
     'backup_dir': '',          # 留空 = 直接放在 data/ 目录下; 也可填绝对路径如 /www/backups
     'max_upload_mb': 500,     # Web 面板上传备份文件的大小上限 (MB)
@@ -99,7 +103,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 # 配置文件字段注释, 由 ctx.ensure_config(comments=...) 渲染
 CONFIG_COMMENTS: Dict[str, Any] = {
-    '__desc__': '备份工具配置 - 由框架自动生成, 修改后无需重启, 下次操作即生效\n备份内容固定包含: 框架 config/ 目录 + 框架 data/ 目录',
+    '__desc__': '备份工具配置 - 由框架自动生成, 修改后无需重启, 下次操作即生效\n备份内容: 各插件 / 各模块的 data 数据 + 除 data/ 外的源码与配置 (含 panel.html 等)',
     'backup_dir': '备份文件存储目录; 留空则直接放在框架自动创建的 data/ 目录下; 也可填绝对路径',
     'max_upload_mb': 'Web 面板上传备份文件的大小上限 (MB)',
     'providers': '云盘 provider 字典, key 为 provider id, value 为各云盘配置 (由 Web 面板管理, 不要手工编辑)',

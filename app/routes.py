@@ -5,8 +5,10 @@
    所有需要传文件名的操作都用 query 参数 ?fn=xxx / ?pid=xxx
 """
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional, Tuple
 from urllib.parse import unquote
 
 from aiohttp import web
@@ -24,6 +26,12 @@ from .utils import log, format_size, get_disk_usage, get_config_files, get_confi
 from .backup import create_backup
 from .restore import restore_backup, parse_backup_info
 from .backup_list import get_backups_list, delete_backup_file
+from .plugins_scan import (
+    get_plugin_inventory, get_plugin_summary, get_plugin_source_summary,
+)
+from .modules_scan import (
+    get_module_inventory, get_module_summary, get_module_source_summary,
+)
 from . import cloud
 
 
@@ -80,6 +88,13 @@ async def api_stats(request):
     data_size = get_data_size()
     backup_dir = get_backup_dir()
     backup_count = len(list(backup_dir.glob('backup_*.zip')))
+    # 插件 / 模块各自只扫一遍, 数据与源码统计共用同一份 inventory
+    plugin_inventory = get_plugin_inventory()
+    plugin_summary = get_plugin_summary(plugin_inventory)
+    plugin_src_summary = get_plugin_source_summary(plugin_inventory)
+    module_inventory = get_module_inventory()
+    module_summary = get_module_summary(module_inventory)
+    module_src_summary = get_module_source_summary(module_inventory)
     disk_usage = get_disk_usage()
     # 前端直接展示用的格式化字段 + 修正字段名 (used_pct -> usage_percent 对齐 panel.html 读取)
     disk_usage['used_readable'] = format_size(disk_usage.get('used', 0))
@@ -96,25 +111,128 @@ async def api_stats(request):
         'data_count': len(data_files),
         'data_size': data_size,
         'data_size_readable': format_size(data_size),
+        'plugin_count': plugin_summary.get('plugin_count', 0),
+        'plugin_with_data_count': plugin_summary.get('plugin_with_data_count', 0),
+        'plugin_file_count': plugin_summary.get('file_count', 0),
+        'plugin_size': plugin_summary.get('size', 0),
+        'plugin_size_readable': plugin_summary.get('size_readable', '0 B'),
+        'plugins': plugin_summary.get('plugins', []),
+        'plugin_src_count': plugin_src_summary.get('plugin_with_src_count', 0),
+        'plugin_src_file_count': plugin_src_summary.get('file_count', 0),
+        'plugin_src_size': plugin_src_summary.get('size', 0),
+        'plugin_src_size_readable': plugin_src_summary.get('size_readable', '0 B'),
+        'module_count': module_summary.get('module_count', 0),
+        'module_with_data_count': module_summary.get('module_with_data_count', 0),
+        'module_file_count': module_summary.get('file_count', 0),
+        'module_size': module_summary.get('size', 0),
+        'module_size_readable': module_summary.get('size_readable', '0 B'),
+        'modules': module_summary.get('modules', []),
+        'module_src_count': module_src_summary.get('module_with_src_count', 0),
+        'module_src_file_count': module_src_summary.get('file_count', 0),
+        'module_src_size': module_src_summary.get('size', 0),
+        'module_src_size_readable': module_src_summary.get('size_readable', '0 B'),
         'backup_count': backup_count,
         'disk_usage': disk_usage,
     })
 
 
+def _parse_selection(payload: dict, field: str) -> Tuple[Optional[List[str]], Optional[str]]:
+    """解析面板提交的插件 / 模块选择, 返回 (选择列表, 错误信息)。
+
+    - 字段缺省或为 null → (None, None), 表示该分类全选
+    - 数组 → (去重后的名称列表, None), 空数组表示该分类一个都不备份
+    - 其它类型 → (None, 错误信息)
+    """
+    if field not in payload:
+        return None, None
+    raw = payload[field]
+    if raw is None:
+        return None, None
+    if not isinstance(raw, list):
+        return None, f'参数 {field} 必须为数组'
+    names: List[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            return None, f'参数 {field} 只能包含字符串'
+        name = item.strip()
+        if name and name not in names:
+            names.append(name)
+    return names, None
+
+
+def _parse_flag(payload: dict, field: str, default: bool = True) -> Tuple[bool, Optional[str]]:
+    """解析面板提交的内容类型开关 (数据文件 / 配置文件), 返回 (布尔值, 错误信息)。
+
+    字段缺省时用 ``default``; 也接受 0/1 字符串等常见 JSON 变体。
+    """
+    if field not in payload or payload[field] is None:
+        return default, None
+    raw = payload[field]
+    if isinstance(raw, bool):
+        return raw, None
+    if isinstance(raw, (int, float)):
+        return bool(raw), None
+    if isinstance(raw, str):
+        low = raw.strip().lower()
+        if low in ('true', '1', 'yes', 'on'):
+            return True, None
+        if low in ('false', '0', 'no', 'off', ''):
+            return False, None
+    return default, f'参数 {field} 必须为布尔值'
+
+
 @register_route('POST', BACKUP_CREATE_PATH, auth=False)
 async def api_create_backup(request):
     try:
-        # 面板每次备份时可临时选择是否备份 config/data
-        # (这两个选项不写入配置文件, 仅由前端根据用户选择传参)
-        data = await request.json() if request.can_read_body else {}
-        include_config = data.get('include_config', True)
-        include_data = data.get('include_data', True)
-        # 至少选一项
-        if not include_config and not include_data:
-            return web.json_response({'success': False, 'error': '请至少选择一项备份内容'})
-        filename = create_backup(include_config=include_config, include_data=include_data)
+        # v2.6 起面板可以勾选要备份的插件 / 模块;
+        # v2.7 起「数据文件」与「配置文件(源码与自带配置)」也可各自开关:
+        #   data=true/false    → 插件 / 模块的 data 运行数据
+        #   config=true/false  → 插件 / 模块除 data/ 外的全部文件
+        # 选择字段缺省或为 null 表示全选, 空数组表示该分类不备份。
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        plugins, err = _parse_selection(payload, 'plugins')
+        if err:
+            return web.json_response({'success': False, 'error': err})
+        modules, err = _parse_selection(payload, 'modules')
+        if err:
+            return web.json_response({'success': False, 'error': err})
+        if plugins == [] and modules == []:
+            return web.json_response({'success': False, 'error': '请至少选择一个插件或模块'})
+
+        include_data_files, err = _parse_flag(payload, 'data')
+        if err:
+            return web.json_response({'success': False, 'error': err})
+        include_config_files, err = _parse_flag(payload, 'config')
+        if err:
+            return web.json_response({'success': False, 'error': err})
+        if not include_data_files and not include_config_files:
+            return web.json_response({'success': False, 'error': '请至少勾选「数据文件」或「配置文件」'})
+
+        # 备份是同步 IO (打包几百 MB), 放到线程里避免阻塞 aiohttp 事件循环。
+        filename = await asyncio.to_thread(
+            create_backup,
+            plugins=plugins,
+            modules=modules,
+            include_data_files=include_data_files,
+            include_config_files=include_config_files,
+        )
         if filename:
-            return web.json_response({'success': True, 'filename': filename})
+            return web.json_response({
+                'success': True,
+                'filename': filename,
+                'scope': {
+                    'plugins': plugins,
+                    'modules': modules,
+                    'data': include_data_files,
+                    'config': include_config_files,
+                },
+            })
         return web.json_response({'success': False, 'error': '备份创建失败'})
     except Exception as e:
         log.error(f'备份失败: {e}')
