@@ -2,11 +2,26 @@
 
 > **重要信息备份与迁移工具** — 所有版本更新记录
 
-[![最新版本](https://img.shields.io/badge/最新-v2.1-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
+[![最新版本](https://img.shields.io/badge/最新-v2.7-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green)](LICENSE)
 [![框架](https://img.shields.io/badge/框架-ElainaBot%20v2-blue)](https://github.com/ElainaCore/ElainaBot_v2)
 
 ---
+
+## v2.7 (2026-10-31)
+
+> 新增「模块 / 插件扫描」能力 —— 备份范围扩展到框架的 `modules/` 与 `plugins/`，备份工具自身也纳入备份。
+
+### 🆕 新增功能
+- **模块扫描 (`app/modules_scan.py`)**: 备份框架 `modules/<模块名>` 的运行数据 (`data/`) 与源码 / 配置（`*.py` + 自带 `*.json` / `*.yaml` / `*.html` 等资源），并迁移 `modules/modules_enabled.json` 启用状态
+- **插件扫描 (`app/plugins_scan.py`)**: 备份框架 `plugins/<插件名>` 的运行数据与源码 / 配置；**备份工具自身也参与备份**，并自动跳过自身生成的 `backup_*.zip` / 临时文件，避免历史备份被递归打包
+- **通用扫描工具 (`app/scan_utils.py`)**: 抽出纯目录遍历、排除规则与体积统计，供上述两者复用；相比旧版 `rglob('*')` 逐个过滤，改用 `os.walk` 在遍历阶段**剪枝**（遇到缓存 / 隐藏 / 排除目录直接不进入）
+
+### 🛡️ 安全与排除策略
+- 排除缓存 / 构建产物 / 虚拟环境 / 临时目录 / 隐藏目录与文件 / 日志
+- 排除自定义备份输出目录 (`backup_dir` 落在被扫描目录内时)，防止历史备份被递归打包
+- 扫描源码时不进入 `data/` 子树，避免遍历几百 MB 的运行数据
+- 源码与运行数据使用**独立开关**：只迁移数据时关闭源码，避免用备份覆盖目标机器上已更新的模块 / 插件代码
 
 ## v2.1 (2026-10-24)
 
