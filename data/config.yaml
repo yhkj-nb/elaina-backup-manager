@@ -1,0 +1,5 @@
+backup_dir: ''  # 备份文件存储目录; 留空则直接放在框架自动创建的 data/ 目录下; 也可填绝对路径
+max_upload_mb: 500  # Web 面板上传备份文件的总大小上限 (MB)
+providers: null  # 云盘 provider 字典, key 为 provider id, value 为各云盘配置 (由 Web 面板管理, 不要手工编辑)
+last_used: null  # 最近一次使用的云盘 provider id; 下次打开云盘页签时会默认选中它 (由插件自动维护)
+chunk_size_mb: 4  # 分片上传单片大小 (MB); 必须显著小于框架 aiohttp 的 client_max_size (ElainaBot v2 为 20MB); 前端遇 413 会自动减半重试

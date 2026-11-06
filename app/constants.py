@@ -27,8 +27,8 @@ _ctx = _ctx_mod.ctx
 __plugin_meta__ = {
     'name': '重要信息备份与迁移工具',
     'author': 'yhkj-nb',
-    'description': '一键备份 / 迁移各插件与模块的数据文件 + 配置文件 (含备份工具自身, 可自定义选择插件/模块与内容类型), 支持上传至云盘',
-    'version': '2.7.0',
+    'description': '一键备份 / 迁移各插件与模块的数据文件 + 配置文件 (含备份工具自身, 可自定义选择插件/模块与内容类型), 分片上传 + 云盘备份',
+    'version': '2.8.0',
     'github': 'https://github.com/yhkj-nb/elaina-backup-manager',
     'license': 'MIT',
 }
@@ -84,10 +84,13 @@ DATA_DIR: Path = PLUGIN_DIR / 'data'
 # ==================== 默认配置 ====================
 
 # 统一配置文件 data/config.yaml 的默认值, 由 ctx.ensure_config('config.yaml') 写入
-# - backup_dir:   自定义备份路径; 留空表示直接放在框架自动创建的 data/ 目录下
-# - max_upload_mb: Web 面板上传备份文件的大小上限 (MB)
-# - providers:    云盘 provider 字典, 由 Web 面板管理
-# - last_used:    最近使用的 provider id (用户上次选了哪个网盘, 下次默认就用它)
+# - backup_dir:     自定义备份路径; 留空表示直接放在框架自动创建的 data/ 目录下
+# - max_upload_mb:  Web 面板上传备份文件的大小上限 (MB)
+# - chunk_size_mb:  分片上传单片大小 (MB); 需显著小于框架 aiohttp client_max_size
+#                   (ElainaBot v2 框架为 20MB), 前端会自动按此切片; 若某框架上限更小,
+#                   前端遇到 413 会自动减半重试。默认 4MB 兼顾性能与通用性
+# - providers:      云盘 provider 字典, 由 Web 面板管理
+# - last_used:      最近使用的 provider id (用户上次选了哪个网盘, 下次默认就用它)
 #
 # 注: 备份内容 = 所选插件 / 模块的「数据文件」(data/ 运行数据) + 「配置文件」
 #     (除 data/ 外的源码与自带配置/资源, 含 *.py、app/panel.html、json/yaml 等);
@@ -97,6 +100,7 @@ DATA_DIR: Path = PLUGIN_DIR / 'data'
 DEFAULT_CONFIG: Dict[str, Any] = {
     'backup_dir': '',          # 留空 = 直接放在 data/ 目录下; 也可填绝对路径如 /www/backups
     'max_upload_mb': 500,     # Web 面板上传备份文件的大小上限 (MB)
+    'chunk_size_mb': 4,       # 分片上传单片大小 (MB), 需 < 框架请求体上限 (默认 20MB)
     'providers': {},          # 云盘 provider 列表, 由 Web 面板管理 (key=provider id, value=该网盘配置)
     'last_used': None,        # 最近一次使用的 provider id (记录用户上次选了哪个网盘)
 }
@@ -105,7 +109,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 CONFIG_COMMENTS: Dict[str, Any] = {
     '__desc__': '备份工具配置 - 由框架自动生成, 修改后无需重启, 下次操作即生效\n备份内容: 各插件 / 各模块的 data 数据 + 除 data/ 外的源码与配置 (含 panel.html 等)',
     'backup_dir': '备份文件存储目录; 留空则直接放在框架自动创建的 data/ 目录下; 也可填绝对路径',
-    'max_upload_mb': 'Web 面板上传备份文件的大小上限 (MB)',
+    'max_upload_mb': 'Web 面板上传备份文件的总大小上限 (MB)',
+    'chunk_size_mb': '分片上传单片大小 (MB); 必须显著小于框架 aiohttp 的 client_max_size (ElainaBot v2 为 20MB); 前端遇 413 会自动减半重试',
     'providers': '云盘 provider 字典, key 为 provider id, value 为各云盘配置 (由 Web 面板管理, 不要手工编辑)',
     'last_used': '最近一次使用的云盘 provider id; 下次打开云盘页签时会默认选中它 (由插件自动维护)',
 }
@@ -129,6 +134,43 @@ def get_backup_dir() -> Path:
         return p
     # 留空: 直接用框架自动创建的 data/ 目录, 不需要再 mkdir
     return DATA_DIR
+
+
+def get_upload_limits() -> Dict[str, Any]:
+    """读取上传相关配置 (总上限 + 分片大小), 供后端路由与前端共用。
+
+    返回字段:
+    - max_upload_mb / max_size_bytes    : 单个备份文件允许的总大小
+    - chunk_size_mb / chunk_size_bytes  : 分片上传单片大小 (需小于框架 client_max_size)
+    - temp_ttl_hours                    : 临时文件/孤儿会话保留时长
+
+    配置缺省或非法时回退到内置默认值, 保证任何环境都能正常工作。
+    """
+    try:
+        cfg = _ctx.read_config('config.yaml') if _ctx else {}
+    except Exception:
+        cfg = {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+
+    def _clamp(key: str, default: float, lo: float, hi: float) -> float:
+        try:
+            v = float(cfg.get(key, default))
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+
+    max_mb = _clamp('max_upload_mb', 500, 1, 4096)
+    chunk_mb = _clamp('chunk_size_mb', 4, 0.125, 16)
+    max_bytes = int(max_mb * 1024 * 1024)
+    chunk_bytes = int(chunk_mb * 1024 * 1024)
+    return {
+        'max_upload_mb': max_mb,
+        'max_size_bytes': max_bytes,
+        'chunk_size_mb': chunk_mb,
+        'chunk_size_bytes': chunk_bytes,
+        'temp_ttl_hours': 6,
+    }
 
 
 _resolve_paths()

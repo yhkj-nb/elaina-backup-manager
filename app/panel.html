@@ -459,12 +459,13 @@
           <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
             <div class="upload-icon"><svg style="width:52px;height:52px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
             <div class="upload-text">点击或拖拽上传备份文件</div>
-            <div class="upload-hint">支持 .zip 格式，最大 500MB</div>
+            <div class="upload-hint" id="uploadHint">支持 .zip 格式，分片上传（自动适配大小）</div>
             <input type="file" id="fileInput" accept=".zip" onchange="handleUpload(this.files[0])">
           </div>
           <div class="upload-progress" id="uploadProgress">
-            <div class="status" id="uploadStatus"><svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;animation:spin 1s linear infinite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg> 正在上传...</div>
+            <div class="status" id="uploadStatus">正在上传...</div>
             <div class="bar"><div class="bar-fill" id="uploadBar"></div></div>
+            <div style="text-align:right;margin-top:6px"><a href="javascript:void(0)" onclick="cancelUpload()" style="font-size:12px;color:var(--text3)">取消上传</a></div>
           </div>
           <div class="preview-box" id="previewBox">
             <h4><svg style="width:16px;height:16px;vertical-align:middle;margin-right:6px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> 备份详情</h4>
@@ -806,47 +807,147 @@ function copyPath(){
 }
 
 let uploadedFile = null, uploadedFilePath = null;
+// 上传配置 (分片大小 / 总上限), 打开页面时从后端拉取, 不再硬编码 500MB
+let UPLOAD_CFG = {max_size_bytes: 500*1024*1024, chunk_size_bytes: 4*1024*1024};
+let uploadAbort = null;   // 当前上传的 AbortController (支持取消)
+
+async function loadUploadConfig(){
+  try{
+    const r = await fetch(API+'/upload/config');
+    const d = await r.json();
+    if(d && d.success){ UPLOAD_CFG = d; }
+  }catch(e){ /* 用内置默认值兜底 */ }
+  const hint = $('uploadHint');
+  if(hint) hint.textContent = '支持 .zip 格式，分片上传（上限 ' + formatSize(UPLOAD_CFG.max_size_bytes) + '，自动适配单片大小）';
+}
+
+// 取消正在进行的分片上传 (清理服务端会话)
+async function cancelUpload(){
+  if(uploadAbort){ uploadAbort.abort(); }
+}
+async function _abortSession(uid){
+  if(!uid) return;
+  try{ await fetch(API+'/upload/abort', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({upload_id:uid})}); }catch(e){}
+}
+
 function handleUpload(file){
   if(!file) return;
   if(!file.name.toLowerCase().endsWith('.zip')){ showToast('仅支持 ZIP 格式', 'error'); return; }
-  if(file.size>500*1024*1024){ showToast('文件过大', 'error'); return; }
-  uploadedFile = file; uploadFile(file);
+  if(file.size===0){ showToast('文件为空', 'error'); return; }
+  const maxSize = Number(UPLOAD_CFG.max_size_bytes) || 500*1024*1024;
+  if(file.size > maxSize){ showToast('文件过大（上限 ' + formatSize(maxSize) + '）', 'error'); return; }
+  uploadedFile = file;
+  uploadFileChunked(file);
 }
-async function uploadFile(file){
+
+// 单个分片的上传 (带超时 / 取消 / 简单重试)
+async function _postChunk(uid, idx, blob, signal){
+  for(let attempt=1; attempt<=3; attempt++){
+    const fd = new FormData();
+    fd.append('upload_id', uid);
+    fd.append('index', String(idx));
+    fd.append('chunk', blob, 'chunk.bin');
+    const r = await fetch(API+'/upload/chunk', {method:'POST', body:fd, signal});
+    if(r.status===413) return {retry_smaller:true};
+    let d;
+    try{ d = await r.json(); }catch(e){ d = {success:false, error:'响应解析失败 (HTTP '+r.status+')'}; }
+    if(d && d.success) return {ok:true, data:d};
+    if(d && d.retry_smaller) return {retry_smaller:true};
+    if(attempt===3) return {ok:false, error:(d && d.error) || ('第 '+(idx+1)+' 片上传失败')};
+    await new Promise(res=>setTimeout(res, 400*attempt));
+  }
+  return {ok:false, error:'分片上传失败'};
+}
+
+// 分片上传主流程: init -> 逐片 -> complete, 真实进度, 413 自动减半单片重试
+async function uploadFileChunked(file){
   const prog=$('uploadProgress'), bar=$('uploadBar'), status=$('uploadStatus'), preview=$('previewBox');
-  prog.style.display='block'; preview.classList.remove('active'); bar.style.width='30%';
-  status.innerHTML='<svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;animation:spin 1s linear infinite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg> 正在上传...';
+  prog.style.display='block'; preview.classList.remove('active');
+  const setProg = (pct, text)=>{ bar.style.width = Math.max(0,Math.min(100,pct))+'%'; status.textContent = text; };
+
+  // 单片大小可从配置减半重试 (某些框架 client_max_size 比默认 20MB 更小)
+  let chunkSize = Number(UPLOAD_CFG.chunk_size_bytes) || 4*1024*1024;
+  const MIN_CHUNK = 64*1024;
+  let currentUid = null;
+  const outerAbort = new AbortController();
+  uploadAbort = outerAbort;
+
   try{
-    const fd = new FormData(); fd.append('file', file);
-    const ctrl = new AbortController(); const tid = setTimeout(()=>ctrl.abort(), 180000);
-    const r = await fetch(API+'/upload', {method:'POST', body:fd, signal:ctrl.signal});
-    clearTimeout(tid);
-    if(r.status===413){ showToast('文件过大', 'error'); prog.style.display='none'; return; }
-    const d = await r.json();
-    bar.style.width='100%';
-    status.innerHTML='<svg style="width:14px;height:14px;vertical-align:middle;margin-right:4px;color:var(--success)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 上传完成，正在解析...';
-    if(!d.success){ showToast('上传失败: ' + (d.error||'未知'), 'error'); prog.style.display='none'; uploadedFile=null; return; }
-    uploadedFilePath = d.temp_path || null;
-    const info = d.info || {};
-    let html = '';
-    if(info.created_at_readable && info.created_at_readable!=='未知') html += `<div class="preview-item"><span class="label">生成时间</span><span class="value">${esc(info.created_at_readable)}</span></div>`;
-    if(info.config_count!==undefined) html += `<div class="preview-item"><span class="label">配置文件</span><span class="value">${info.config_count} 个</span></div>`;
-    if(info.data_count!==undefined) html += `<div class="preview-item"><span class="label">数据文件</span><span class="value">${info.data_count} 个</span></div>`;
-    if(info.plugin_file_count!==undefined) html += `<div class="preview-item"><span class="label">插件数据</span><span class="value">${info.plugin_count||0} 个插件 / ${info.plugin_file_count} 个文件</span></div>`;
-    if(info.plugin_src_file_count!==undefined) html += `<div class="preview-item"><span class="label">插件源码/配置</span><span class="value">${info.plugin_src_count||0} 个插件 / ${info.plugin_src_file_count} 个文件</span></div>`;
-    if(info.module_file_count!==undefined) html += `<div class="preview-item"><span class="label">模块数据</span><span class="value">${info.module_count||0} 个模块 / ${info.module_file_count} 个文件</span></div>`;
-    if(info.module_src_file_count!==undefined) html += `<div class="preview-item"><span class="label">模块源码/配置</span><span class="value">${info.module_src_count||0} 个模块 / ${info.module_src_file_count} 个文件</span></div>`;
-    if(info.file_size) html += `<div class="preview-item"><span class="label">文件大小</span><span class="value">${esc(info.file_size)}</span></div>`;
-    if(info.total_size_readable) html += `<div class="preview-item"><span class="label">原始大小</span><span class="value">${esc(info.total_size_readable)}</span></div>`;
-    if(info.version) html += `<div class="preview-item"><span class="label">备份版本</span><span class="value">v${esc(info.version)}</span></div>`;
-    $('previewGrid').innerHTML = html || '<div class="preview-item"><span class="label">信息</span><span class="value">备份文件有效</span></div>';
-    preview.classList.add('active'); prog.style.display='none';
-    showToast('解析成功', 'success');
+    for(let round=0; round<8; round++){
+      if(outerAbort.signal.aborted) throw new DOMException('已取消','AbortError');
+      // --- init ---
+      const initR = await fetch(API+'/upload/init', {
+        method:'POST', headers:{'Content-Type':'application/json'}, signal: outerAbort.signal,
+        body: JSON.stringify({filename:file.name, size:file.size, chunk_size:chunkSize})
+      });
+      const initD = await initR.json();
+      if(!initD.success){ showToast('上传失败: '+(initD.error||'初始化失败'), 'error'); prog.style.display='none'; uploadedFile=null; return; }
+      currentUid = initD.upload_id;
+      chunkSize = initD.chunk_size;
+      const total = initD.total_chunks;
+      const received = new Set(initD.received || []);
+      setProg(0, '准备上传 0 / '+total+' 片');
+
+      let needSmaller = false;
+      // --- 逐片 ---
+      for(let i=0;i<total;i++){
+        if(outerAbort.signal.aborted) throw new DOMException('已取消','AbortError');
+        if(received.has(i)){ setProg(Math.round((i+1)/total*100), '断点续传 '+(i+1)+' / '+total+' 片'); continue; }
+        const blob = file.slice(i*chunkSize, Math.min(file.size,(i+1)*chunkSize));
+        const res = await _postChunk(currentUid, i, blob, outerAbort.signal);
+        if(res.retry_smaller){
+          // 单片仍超框架请求上限: 减半后清理本次会话重新 init
+          await _abortSession(currentUid); currentUid = null;
+          if(chunkSize <= MIN_CHUNK){ showToast('分片已最小仍超过服务器请求上限，请调低框架 client_max_size 限制', 'error'); prog.style.display='none'; uploadedFile=null; return; }
+          chunkSize = Math.max(MIN_CHUNK, Math.floor(chunkSize/2));
+          needSmaller = true;
+          break;
+        }
+        if(!res.ok){ showToast('上传失败: '+res.error, 'error'); await _abortSession(currentUid); prog.style.display='none'; uploadedFile=null; return; }
+        const pct = Math.round((i+1)/total*100);
+        setProg(pct, '正在上传 '+(i+1)+' / '+total+' 片 · '+pct+'%（'+formatSize((i+1)*chunkSize>file.size?file.size:(i+1)*chunkSize)+' / '+formatSize(file.size)+'）');
+      }
+      if(needSmaller) continue;   // 换更小的单片重来
+
+      // --- complete: 合并 + 校验 + 解析 ---
+      setProg(100, '全部分片已上传，正在合并校验...');
+      const cR = await fetch(API+'/upload/complete', {
+        method:'POST', headers:{'Content-Type':'application/json'}, signal: outerAbort.signal,
+        body: JSON.stringify({upload_id:currentUid})
+      });
+      const d = await cR.json();
+      if(!d.success){ showToast('合并失败: '+(d.error||'未知'), 'error'); await _abortSession(currentUid); prog.style.display='none'; uploadedFile=null; return; }
+      currentUid = null;   // 会话已由服务端清理
+      uploadedFilePath = d.temp_path || null;
+
+      const info = d.info || {};
+      let html = '';
+      if(info.created_at_readable && info.created_at_readable!=='未知') html += `<div class="preview-item"><span class="label">生成时间</span><span class="value">${esc(info.created_at_readable)}</span></div>`;
+      if(info.config_count!==undefined) html += `<div class="preview-item"><span class="label">配置文件</span><span class="value">${info.config_count} 个</span></div>`;
+      if(info.data_count!==undefined) html += `<div class="preview-item"><span class="label">数据文件</span><span class="value">${info.data_count} 个</span></div>`;
+      if(info.plugin_file_count!==undefined) html += `<div class="preview-item"><span class="label">插件数据</span><span class="value">${info.plugin_count||0} 个插件 / ${info.plugin_file_count} 个文件</span></div>`;
+      if(info.plugin_src_file_count!==undefined) html += `<div class="preview-item"><span class="label">插件源码/配置</span><span class="value">${info.plugin_src_count||0} 个插件 / ${info.plugin_src_file_count} 个文件</span></div>`;
+      if(info.module_file_count!==undefined) html += `<div class="preview-item"><span class="label">模块数据</span><span class="value">${info.module_count||0} 个模块 / ${info.module_file_count} 个文件</span></div>`;
+      if(info.module_src_file_count!==undefined) html += `<div class="preview-item"><span class="label">模块源码/配置</span><span class="value">${info.module_src_count||0} 个模块 / ${info.module_src_file_count} 个文件</span></div>`;
+      if(info.file_size) html += `<div class="preview-item"><span class="label">文件大小</span><span class="value">${esc(info.file_size)}</span></div>`;
+      if(info.total_size_readable) html += `<div class="preview-item"><span class="label">原始大小</span><span class="value">${esc(info.total_size_readable)}</span></div>`;
+      if(info.version) html += `<div class="preview-item"><span class="label">备份版本</span><span class="value">v${esc(info.version)}</span></div>`;
+      $('previewGrid').innerHTML = html || '<div class="preview-item"><span class="label">信息</span><span class="value">备份文件有效（已通过完整性校验）</span></div>';
+      setProg(100, '上传完成，校验通过');
+      preview.classList.add('active'); prog.style.display='none';
+      showToast('上传成功，已通过完整性校验', 'success');
+      return;
+    }
+    showToast('上传失败：分片大小自适应重试次数过多', 'error');
+    prog.style.display='none'; uploadedFile=null;
   } catch(e){
+    if(currentUid) await _abortSession(currentUid);
     prog.style.display='none';
-    if(e.name==='AbortError') showToast('上传超时，请重试', 'error');
+    if(e.name==='AbortError') showToast('上传已取消', 'info');
     else showToast('上传失败: ' + e.message, 'error');
     uploadedFile = null;
+  } finally {
+    uploadAbort = null;
   }
 }
 const zone = $('uploadZone');
@@ -881,8 +982,10 @@ async function doRestore(){
   showToast('正在恢复中，请稍候...', 'info');
   try{
     const fd = new FormData();
-    if(uploadedFile) fd.append('file', uploadedFile);
+    // v2.8: 分片上传完成后服务端已保存合并好的 ZIP, 恢复只传 temp_path (短字符串),
+    // 不再重传整个文件 —— 否则恢复请求同样会被框架 20MB 上限挡住。
     if(uploadedFilePath) fd.append('temp_path', uploadedFilePath);
+    else if(uploadedFile) fd.append('file', uploadedFile);  // 兜底: 旧版单次上传的小文件
     const r = await fetch(API+'/restore', {method:'POST', body:fd});
     const d = await r.json();
     if(d.success){
@@ -1231,6 +1334,7 @@ function toggleTheme(){
 applyTheme(localStorage.getItem('eb-theme'));
 
 loadStatus();
+loadUploadConfig();   // v2.8: 拉取分片上传配置 (总上限 / 单片大小)
 </script>
 </body>
 </html>

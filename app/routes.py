@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -21,11 +22,12 @@ import core.plugin.context as _ctx_mod
 # 任何运行时 (Web 请求 / on_load 之后) 再读 _ctx_mod.ctx 都是 None!
 _ctx = _ctx_mod.ctx
 
-from .constants import get_backup_dir
+from .constants import get_backup_dir, get_upload_limits
 from .utils import log, format_size, get_disk_usage, get_config_files, get_config_size, get_data_files, get_data_size
 from .backup import create_backup
 from .restore import restore_backup, parse_backup_info
 from .backup_list import get_backups_list, delete_backup_file
+from . import chunk_upload
 from .plugins_scan import (
     get_plugin_inventory, get_plugin_summary, get_plugin_source_summary,
 )
@@ -41,6 +43,12 @@ PAGE_PATH = '/api/ext/backup_manager'
 STATS_PATH = '/api/ext/backup_manager/stats'
 BACKUP_CREATE_PATH = '/api/ext/backup_manager/backup'
 UPLOAD_PATH = '/api/ext/backup_manager/upload'
+# v2.8 分片上传: 绕开框架 aiohttp client_max_size(20MB) 对整个请求体的限制
+UPLOAD_CONFIG_PATH = '/api/ext/backup_manager/upload/config'
+UPLOAD_INIT_PATH = '/api/ext/backup_manager/upload/init'
+UPLOAD_CHUNK_PATH = '/api/ext/backup_manager/upload/chunk'
+UPLOAD_COMPLETE_PATH = '/api/ext/backup_manager/upload/complete'
+UPLOAD_ABORT_PATH = '/api/ext/backup_manager/upload/abort'
 RESTORE_PATH = '/api/ext/backup_manager/restore'
 BACKUPS_LIST_PATH = '/api/ext/backup_manager/backups'
 DELETE_PATH = '/api/ext/backup_manager/delete'
@@ -239,8 +247,114 @@ async def api_create_backup(request):
         return web.json_response({'success': False, 'error': str(e)})
 
 
+# ==================== v2.8 分片上传 ====================
+# 框架 aiohttp 的 client_max_size=20MB 限制「整个请求体」, 大备份包一次性 POST 会被
+# aiohttp 在解析阶段 413 拒绝。分片上传把文件切成若干 << 20MB 的小片逐个上传,
+# 最后在服务端按序合并, 从而彻底绕开框架上限, 且附带真实进度 / 断点续传 / 清理。
+
+
+@register_route('GET', UPLOAD_CONFIG_PATH, auth=False)
+async def api_upload_config(request):
+    """前端上传前先取配置: 总上限 / 单片大小 / 分片数等信息。"""
+    limits = get_upload_limits()
+    return web.json_response({'success': True, **limits})
+
+
+@register_route('POST', UPLOAD_INIT_PATH, auth=False)
+async def api_upload_init(request):
+    """初始化上传会话。body: {filename, size, chunk_size?}"""
+    try:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        result = await asyncio.to_thread(
+            chunk_upload.init_upload,
+            data.get('filename'), data.get('size'), data.get('chunk_size'),
+        )
+        return web.json_response(result)
+    except Exception as e:
+        log.error(f'分片上传 init 失败: {e}')
+        return web.json_response({'success': False, 'error': str(e)})
+
+
+@register_route('POST', UPLOAD_CHUNK_PATH, auth=False)
+async def api_upload_chunk(request):
+    """接收单个分片。multipart: upload_id, index, chunk(二进制)。
+
+    注意: request.multipart() 只能消费一次, 因此这里在一次遍历里收集全部字段,
+    绝不像旧 /restore 那样调用两次 multipart()。
+    """
+    try:
+        reader = await request.multipart()
+        upload_id = None
+        index = None
+        data = None
+        async for field in reader:
+            if field.name == 'upload_id':
+                val = await field.read(decode=False)
+                upload_id = val.decode('utf-8', 'replace').strip()
+            elif field.name == 'index':
+                val = await field.read(decode=False)
+                index = val.decode('utf-8', 'replace').strip()
+            elif field.name == 'chunk':
+                data = await field.read(decode=False)
+        if data is None:
+            return web.json_response({'success': False, 'error': '缺少分片数据'})
+        result = await asyncio.to_thread(chunk_upload.write_chunk, upload_id, index, data)
+        return web.json_response(result)
+    except web.HTTPRequestEntityTooLarge:
+        # 单片仍超过框架上限 (例如框架 client_max_size 比配置更小):
+        # 告诉前端把单片减半重试, 由前端重新 init。
+        return web.json_response(
+            {'success': False, 'error': '分片体积超过服务器请求上限', 'code': 'CHUNK_TOO_LARGE', 'retry_smaller': True},
+            status=413,
+        )
+    except Exception as e:
+        log.error(f'分片上传 chunk 失败: {e}')
+        return web.json_response({'success': False, 'error': str(e)})
+
+
+@register_route('POST', UPLOAD_COMPLETE_PATH, auth=False)
+async def api_upload_complete(request):
+    """全部分片到位后合并。body: {upload_id}"""
+    try:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        upload_id = data.get('upload_id') if isinstance(data, dict) else None
+        result = await asyncio.to_thread(chunk_upload.complete_upload, upload_id)
+        return web.json_response(result)
+    except Exception as e:
+        log.error(f'分片上传 complete 失败: {e}')
+        return web.json_response({'success': False, 'error': str(e)})
+
+
+@register_route('POST', UPLOAD_ABORT_PATH, auth=False)
+async def api_upload_abort(request):
+    """取消上传, 清理会话。body: {upload_id}"""
+    try:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        upload_id = data.get('upload_id') if isinstance(data, dict) else None
+        result = await asyncio.to_thread(chunk_upload.abort_upload, upload_id)
+        return web.json_response(result)
+    except Exception as e:
+        return web.json_response({'success': False, 'error': str(e)})
+
+
 @register_route('POST', UPLOAD_PATH, auth=False)
 async def api_upload_backup(request):
+    """兼容旧版: 一次性上传小 ZIP (请求体会受框架 client_max_size 限制)。
+
+    面板已改用分片上传; 此路由仅保留给小文件 / 第三方脚本调用。
+    上限从 config.yaml 的 max_upload_mb 读取, 不再硬编码 500MB; 且用唯一文件名防覆盖。
+    """
     try:
         reader = await request.multipart()
         file_data = None
@@ -253,33 +367,45 @@ async def api_upload_backup(request):
 
         if not file_data:
             return web.json_response({'success': False, 'error': '未找到上传文件'})
-        if not filename.lower().endswith('.zip'):
+        if not str(filename).lower().endswith('.zip'):
             return web.json_response({'success': False, 'error': '仅支持 ZIP 文件'})
         if len(file_data) == 0:
             return web.json_response({'success': False, 'error': '文件为空'})
-        if len(file_data) > 500 * 1024 * 1024:
-            return web.json_response({'success': False, 'error': '文件过大，请上传小于 500MB 的文件'})
+        max_size = int(get_upload_limits()['max_size_bytes'])
+        if len(file_data) > max_size:
+            return web.json_response({'success': False, 'error': f'文件过大 (上限 {format_size(max_size)})'})
 
-        tmp_dir = get_backup_dir() / 'temp'
-        tmp_dir.mkdir(exist_ok=True)
-        tmp_path = tmp_dir / f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        # 校验 ZIP 完整性后再落盘解析
+        import io
+        import zipfile
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_data)) as zf:
+                bad = zf.testzip()
+                if bad is not None:
+                    raise zipfile.BadZipFile(f'损坏的成员: {bad}')
+        except (zipfile.BadZipFile, OSError) as e:
+            return web.json_response({'success': False, 'error': f'无效的 ZIP 备份文件: {e}'})
+
+        # 命名带随机后缀, 避免同秒并发覆盖; 交由统一 temp 目录管理以便清理
+        tmp_dir = chunk_upload.get_temp_dir()
+        safe_name = str(filename).replace('\\', '/').rsplit('/', 1)[-1]
+        tmp_path = tmp_dir / f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.zip"
         tmp_path.write_bytes(file_data)
 
-        try:
-            info = parse_backup_info(tmp_path)
-            info['file_size'] = format_size(tmp_path.stat().st_size)
-            info['original_filename'] = filename
-            return web.json_response({
-                'success': True,
-                'filename': filename,
-                'size': info['file_size'],
-                'info': info,
-                'temp_path': str(tmp_path),
-            })
-        except Exception as e:
-            log.error(f'解析上传文件失败: {e}')
-            return web.json_response({'success': False, 'error': f'解析失败: {str(e)}'})
-
+        info = parse_backup_info(tmp_path) or {}
+        info['file_size'] = format_size(tmp_path.stat().st_size)
+        info['original_filename'] = safe_name
+        return web.json_response({
+            'success': True,
+            'filename': safe_name,
+            'size': info['file_size'],
+            'info': info,
+            'temp_path': str(tmp_path),
+        })
+    except web.HTTPRequestEntityTooLarge:
+        return web.json_response(
+            {'success': False, 'error': '文件过大, 请使用面板的分片上传', 'code': 'USE_CHUNKED'}, status=413
+        )
     except Exception as e:
         log.error(f'上传失败: {e}')
         return web.json_response({'success': False, 'error': str(e)})
@@ -287,56 +413,70 @@ async def api_upload_backup(request):
 
 @register_route('POST', RESTORE_PATH, auth=False)
 async def api_restore_backup(request):
+    """恢复备份。
+
+    v2.8 修复: 旧版调用了两次 request.multipart() (同一请求体只能消费一次),
+    导致 temp_path 永远读不到。现在一次遍历收集 file / temp_path 全部字段。
+    面板分片上传完成后只传 temp_path (不重传整个 ZIP, 避免恢复再撞 20MB 上限);
+    同时兼容旧的 file 字段直传。temp_path 必须 resolve 到 temp 目录内才放行。
+    """
+    zip_path = None
+    from_restore_file = False   # 是否是本次请求新建的临时文件 (需在结束时删除)
+    temp_used = False           # 是否复用了上传阶段生成的临时 ZIP
     try:
         reader = await request.multipart()
         file_data = None
+        temp_path_str = None
         async for field in reader:
             if field.name == 'file' and field.filename:
                 file_data = await field.read(decode=False)
-                break
-
-        if not file_data:
-            return web.json_response({'success': False, 'error': '未找到上传文件'})
-        if len(file_data) == 0:
-            return web.json_response({'success': False, 'error': '文件为空'})
-
-        reader = await request.multipart()
-        temp_path_str = None
-        async for field in reader:
-            if field.name == 'temp_path':
+            elif field.name == 'temp_path':
                 val = await field.read(decode=False)
                 if val:
-                    temp_path_str = val.decode('utf-8').strip()
-                break
+                    temp_path_str = val.decode('utf-8', 'replace').strip()
 
-        if temp_path_str and Path(temp_path_str).exists():
-            zip_path = Path(temp_path_str)
-        else:
-            tmp_dir = get_backup_dir() / 'temp'
-            tmp_dir.mkdir(exist_ok=True)
-            zip_path = tmp_dir / f"restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        # 优先复用上传阶段已合并好的临时 ZIP (校验路径合法性, 防任意文件恢复)
+        if temp_path_str:
+            safe = chunk_upload.validate_temp_path(temp_path_str)
+            if safe is None:
+                return web.json_response({'success': False, 'error': '临时文件路径非法或已失效, 请重新上传'})
+            zip_path = safe
+            temp_used = True
+        elif file_data:
+            if len(file_data) == 0:
+                return web.json_response({'success': False, 'error': '文件为空'})
+            max_size = int(get_upload_limits()['max_size_bytes'])
+            if len(file_data) > max_size:
+                return web.json_response({'success': False, 'error': f'文件过大 (上限 {format_size(max_size)})'})
+            tmp_dir = chunk_upload.get_temp_dir()
+            zip_path = tmp_dir / f"restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.zip"
             zip_path.write_bytes(file_data)
+            from_restore_file = True
+        else:
+            return web.json_response({'success': False, 'error': '未找到上传文件, 请重新上传备份'})
 
-        try:
-            result = restore_backup(zip_path)
-            if result['success']:
-                return web.json_response({
-                    'success': True, 'message': '恢复成功！', 'result': result,
-                })
-            else:
-                return web.json_response({
-                    'success': False, 'error': '恢复失败', 'errors': result.get('errors', []),
-                })
-        finally:
-            if not temp_path_str or not Path(temp_path_str).exists():
-                try:
-                    zip_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-
+        result = await asyncio.to_thread(restore_backup, zip_path)
+        if result['success']:
+            return web.json_response({'success': True, 'message': '恢复成功！', 'result': result})
+        return web.json_response({
+            'success': False, 'error': '恢复失败', 'errors': result.get('errors', []),
+        })
+    except web.HTTPRequestEntityTooLarge:
+        return web.json_response(
+            {'success': False, 'error': '文件过大, 请使用面板的分片上传后恢复', 'code': 'USE_CHUNKED'}, status=413
+        )
     except Exception as e:
         log.error(f'恢复失败: {e}')
         return web.json_response({'success': False, 'error': str(e)})
+    finally:
+        # 无论成功失败都清理临时 ZIP: 上传阶段产物 / 本次新建产物, 避免 temp 目录堆积
+        try:
+            if from_restore_file and zip_path is not None:
+                zip_path.unlink(missing_ok=True)
+            elif temp_used:
+                chunk_upload.remove_temp_file(str(zip_path) if zip_path else None)
+        except Exception:
+            pass
 
 
 @register_route('GET', BACKUPS_LIST_PATH, auth=False)

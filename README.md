@@ -2,11 +2,11 @@
 
 > **选择性备份与迁移 Bot 核心数据 — 配置文件 · 插件数据 · 一键导入导出**
 
-[![版本](https://img.shields.io/badge/版本-v2.1-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
+[![版本](https://img.shields.io/badge/版本-v2.8-brightgreen)](https://github.com/yhkj-nb/elaina-backup-manager/releases)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green)](LICENSE)
 [![ElainaBot](https://img.shields.io/badge/框架-ElainaBot%20v2-blue)](https://github.com/ElainaCore/ElainaBot_v2)
 [![Python](https://img.shields.io/badge/Python-3.11+-purple)](https://python.org)
-[![QQ群](https://img.shields.io/badge/QQ交流群-点击链接查看所有群-blue)](https://yhkj-nb.github.io/yhkj-nb/QQ.html)
+[![QQ群](https://img.shields.io/badge/QQ交流群-点击链接查看所有群-blue)](https://api.yhkj.ddns-ip.net/qun.php)
 
 ---
 
@@ -30,13 +30,14 @@
 
 | 特性 | 说明 |
 |------|------|
-| 📦 **智能备份** | 自动打包 config/ 目录配置文件与所有插件 data/ 数据文件 |
+| 📦 **智能备份** | 自动打包各插件 `plugins/*` 与各模块 `modules/*` 的 data/ 运行数据 + 除 data/ 外的全部源码与配置 (`*.py`、`panel.html`、`json`/`yaml` 等)；「数据文件」与「配置文件」可在面板中分别开关 |
 | 🔄 **ZIP 导入/导出** | 标准 ZIP 格式，支持上传备份文件进行恢复 |
+| 📡 **分片上传** | 大备份包自动分片上传，绕开框架 aiohttp `client_max_size=20MB` 请求体上限；真实进度条、单片超时重试、413 自动减半单片、断点续传、合并后 CRC 完整性校验 |
 | ☁️ **云盘备份** | 支持上传到 WebDAV / S3 兼容 / FTP 三大类云盘 |
 | 🎨 **现代化 UI** | 浅色主题面板，侧边栏导航，响应式布局 |
 | 📊 **仪表盘** | 实时展示备份统计、存储空间、最近备份记录 |
 | 🔓 **免验证访问** | 所有 API 路由 `auth=False`，无需登录即可调用 |
-| 🛡️ **安全校验** | 路径穿越防护、ZIP 完整性检测、文件名白名单过滤 |
+| 🛡️ **安全校验** | 路径穿越防护、ZIP 完整性检测、文件名白名单过滤、恢复路径白名单 |
 | ⚡ **热重载支持** | 插件更新即时生效，无需重启框架 |
 | 🧩 **模块化结构** | main.py 拆分到 app/ 目录，按职责划分模块 |
 
@@ -90,18 +91,21 @@ core.plugin.*, core.base.logger (框架自带)
 ### 2. 新建备份
 
 1. 点击侧边栏「新建备份」
-2. 选择要包含的目录（默认全选）
+2. 点击「数据文件」/ 「配置文件」标签开关备份内容 (默认都开启)，并在下方勾选要备份的插件 / 模块 (默认全选)
 3. 点击「开始备份」生成 ZIP 文件
 4. 备份文件名格式：`backup_YYYYMMDD_HHMMSS.zip`
 5. 备份完成后自动出现在历史记录中
 
-### 3. 导入备份
+### 3. 导入备份（分片上传）
 
-1. 点击侧边栏「导入备份」
-2. 选择本地 ZIP 文件上传
-3. 系统校验 ZIP 完整性
-4. 预览备份内容清单
-5. 确认后解压恢复到对应目录
+1. 点击侧边栏「导入恢复」
+2. 选择或拖拽本地 ZIP 文件，系统自动按 `chunk_size_mb`（默认 4MB）**分片上传**
+3. 面板显示真实进度（第 N / 共 M 片、百分比），可随时点「取消上传」
+4. 全部分片到位后，服务端**流式合并**并做 ZIP 完整性校验（CRC）、大小核对
+5. 预览备份内容清单
+6. 确认后恢复到对应目录（恢复只传临时路径，不重传整个文件）
+
+> **为什么用分片**：ElainaBot v2 框架的 aiohttp `Application` 默认 `client_max_size=20MB`，限制**整个请求体**。备份包含全部插件源码 + 运行数据，很容易超过 20MB，一次性上传会被框架在解析阶段直接 413 拒绝。分片把每个请求压到远小于 20MB，从而彻底绕开该限制，且插件无需改动框架配置即可分发。若目标框架的 `client_max_size` 更小，前端遇到 413 会自动把单片减半重试（最低 64KB）；也可在 `data/config.yaml` 调小 `chunk_size_mb`。
 
 ### 4. 备份历史
 
@@ -223,6 +227,8 @@ core.plugin.*, core.base.logger (框架自带)
 所有配置（备份路径 + 云盘 provider）统一保存在插件 `data/config.yaml`，由框架 `ctx.ensure_config()` 在首次加载时自动生成：
 
 ```yaml
+max_upload_mb: 500     # 上传备份总大小上限 (MB), 前后端共用
+chunk_size_mb: 4       # 分片单片大小 (MB), 需显著小于框架 client_max_size (20MB)
 providers:
   nutstore_xxxxx:
     type: webdav
@@ -257,22 +263,30 @@ last_used: nutstore_xxxxx
 
 | 目录 | 内容 | 示例文件 |
 |------|------|----------|
-| `config/` | 框架核心配置 | `bot.yaml`, `settings.yaml` |
-| `plugins/*/data/` | 各插件数据 | `*.yaml`, `*.json`, `*.db` |
+| `plugins/*/data/` | 各插件运行数据 + 备份工具自身配置 (已跳过其备份包) | `*.yaml`, `*.json`, `*.db` |
+| `plugins/*` (除 data/) | 各插件源码 + 自带配置与静态资源 | `main.py`, `app/*.py`, `app/panel.html`, `*.json` |
+| `modules/*/data/` | 各框架模块运行数据 + `modules_enabled.json` | `*.json`, `*.db` |
+| `modules/*` (除 data/) | 各框架模块源码 + 自带配置与静态资源 | `main.py`, `app/*.py`, `*.json` |
+
+备份范围固定为「插件 + 模块」，不含框架 `config/` 与项目根 `data/`。**备份工具自身也包含在内**（源码 + `data/config.yaml` 等配置），但会自动跳过它生成的 `backup_*.zip` 备份包，避免递归打包。面板「新建备份」页可分别开关「数据文件」与「配置文件」(默认都开启)，并可自定义勾选要打包的插件 / 模块 (默认全选)；二者都不能为空，否则后端拒绝生成空备份。
 
 ### 排除的文件
 
 ```yaml
 excludes:
-  - "*.pyc"              # Python 字节码
-  - "__pycache__/"       # 缓存目录
-  - "*.tmp"              # 临时文件
-  - "logs/"              # 日志目录（可选）
+  - "备份工具/data/backup_*.zip"  # 备份工具自身生成的备份包 (防止历史备份递归打包)
+  - "__pycache__/"        # 缓存目录
+  - "*.pyc"               # Python 字节码
+  - "*.tmp" / "*.log"     # 临时文件与日志
+  - ".git/" / "node_modules/" / "venv/"  # 构建与依赖产物
+  - "<备份输出目录>"       # 避免把历史备份再次打包
 ```
+
+> 恢复时仍会跳过 `plugins/备份工具/...`：避免用旧备份覆盖正在运行的插件代码与云盘凭据。
 
 ### 自定义备份范围
 
-备份逻辑固定打包 `config/` 与 `data/` 目录, 排除「备份工具」自身目录下的文件。如需修改备份源, 编辑 `app/backup.py` 中 `create_backup()` 函数的 glob 规则。
+备份范围固定为插件与模块，面板可分别开关「数据文件」(data/ 运行数据) 与「配置文件」(除 data/ 外的源码与配置)，并可自定义勾选要打包的插件 / 模块；`plugins/<插件名>/...`、`modules/<模块名>/...` 以白名单方式写入 ZIP，恢复时只允许写回这几类路径。
 
 **自定义备份存储路径**: 编辑插件 `data/config.yaml` 中的 `backup_dir` 字段：
 
@@ -298,16 +312,21 @@ backup_dir: /www/backups
 │   ├── __init__.py        # 包入口, 导出公开 API
 │   ├── constants.py       # 路径常量、插件元数据
 │   ├── utils.py           # format_size / 文件扫描 / 磁盘使用
-│   ├── backup.py          # 本地备份创建 (ZIP 打包)
+│   ├── scan_utils.py      # 扫描通用工具 (遍历剪枝 + 排除规则, 插件/模块共用)
+│   ├── plugins_scan.py    # 插件运行数据 + 源码/配置 (除 data/ 外全部文件) 扫描
+│   ├── modules_scan.py    # 框架模块数据 + 源码/配置 (除 data/ 外全部文件) 扫描
+│   ├── backup.py          # 本地备份创建 (统一条目 → 单次扫描 → ZIP 打包)
+│   ├── chunk_upload.py    # 分片上传会话管理 (v2.8, 纯逻辑可离线单测)
 │   ├── restore.py         # 备份恢复、备份信息解析
 │   ├── backup_list.py     # 本地备份列表、删除
 │   ├── cloud.py           # 云盘备份 (WebDAV / S3 / FTP)
-│   ├── routes.py          # 所有 Web 路由 (含云盘路由)
+│   ├── routes.py          # 所有 Web 路由 (含分片上传 / 云盘路由)
 │   ├── lifecycle.py       # on_load / on_unload
 │   └── panel.html         # Web 面板
 ├── data/                  # 框架加载时自动生成 (运行数据目录)
-│   ├── config.yaml            # 统一配置: 备份路径 + 云盘 provider (首次加载自动生成)
+│   ├── config.yaml            # 统一配置: 备份路径 + 上传限制 + 云盘 provider (首次加载自动生成)
 │   ├── cloud_sync_state.json  # 云盘同步状态记录
+│   ├── temp/                  # 上传分片会话 / 恢复临时 ZIP (自动清理, 不进备份包)
 │   └── *.zip                  # 备份 ZIP 文件 (默认直接放 data/ 下, 可由 config.yaml 改路径)
 ├── README.md
 └── LICENSE
@@ -334,9 +353,14 @@ backup_dir: /www/backups
 | `GET` | `/stats` | ❌ | 获取备份统计 + 磁盘使用 |
 | `GET` | `/disk_usage` | ❌ | 仅获取磁盘使用 |
 | `GET` | `/backups` | ❌ | 获取备份列表 |
-| `POST` | `/backup` | ❌ | 创建新备份 (body: `{include_config, include_data}`) |
-| `POST` | `/upload` | ❌ | 上传备份文件 (multipart, 返回解析信息) |
-| `POST` | `/restore` | ❌ | 恢复上传的备份 (multipart) |
+| `POST` | `/backup` | ❌ | 创建新备份 (body: `{plugins, modules, data, config}`) |
+| `GET` | `/upload/config` | ❌ | 获取上传配置 (总上限 / 单片大小, v2.8) |
+| `POST` | `/upload/init` | ❌ | 初始化分片上传会话 (body: `{filename, size, chunk_size?}`) |
+| `POST` | `/upload/chunk` | ❌ | 上传单个分片 (multipart: `upload_id`, `index`, `chunk`) |
+| `POST` | `/upload/complete` | ❌ | 合并 + 校验 + 解析 (body: `{upload_id}`) |
+| `POST` | `/upload/abort` | ❌ | 取消上传并清理会话 (body: `{upload_id}`) |
+| `POST` | `/upload` | ❌ | 一次性上传备份文件 (兼容旧版, 仅小文件; multipart) |
+| `POST` | `/restore` | ❌ | 恢复备份 (multipart: `temp_path` 或 `file`; v2.8 起分片上传只传 `temp_path`) |
 | `GET` | `/download?fn=<name>` | ❌ | 下载备份文件 |
 | `DELETE` | `/delete?fn=<name>` | ❌ | 删除备份文件 |
 
@@ -362,10 +386,10 @@ backup_dir: /www/backups
 # 获取备份列表
 curl http://localhost:5200/api/ext/backup_manager/backups
 
-# 创建备份
+# 创建备份 (plugins / modules 缺省或 null = 全选; data / config = 是否打包数据文件 / 配置文件)
 curl -X POST http://localhost:5200/api/ext/backup_manager/backup \
   -H 'Content-Type: application/json' \
-  -d '{"include_config": true, "include_data": true}'
+  -d '{"plugins": ["系统状态"], "modules": [], "data": true, "config": false}'
 
 # 下载备份
 curl -o backup.zip "http://localhost:5200/api/ext/backup_manager/download?fn=backup_20250415_120000.zip"
@@ -444,9 +468,7 @@ curl -X POST http://localhost:5200/api/ext/backup_manager/cloud/test \
 - API 参考表与实际路由对齐, 补充云盘相关接口
 
 ---
-## v2.0
-支持云盘上传功能
-优化了备份机制，减少一些不必要的占用
+
 ### v1.5 (2026-07)
 
 #### ✨ 新增功能
@@ -550,7 +572,7 @@ chore: 构建流程/依赖更新
 本项目采用 [MIT 许可证](LICENSE)。
 
 ```
-Copyright (c) 2026 yhkj-nb
+Copyright (c) 2025 yhkj-nb
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -578,7 +600,7 @@ SOFTWARE.
 | 渠道 | 链接 |
 |------|------|
 | 📦 GitHub | [yhkj-nb/elaina-backup-manager](https://github.com/yhkj-nb/elaina-backup-manager) |
-| 💬 QQ 群 | [点击链接查看全部群](https://yhkj-nb.github.io/yhkj-nb/QQ.html) |
+| 💬 QQ 群 | [点击链接查看全部群](https://api.yhkj.ddns-ip.net/qun.php) |
 | 📧 Issue | [GitHub Issues](https://github.com/yhkj-nb/elaina-backup-manager/issues) |
 
 ---

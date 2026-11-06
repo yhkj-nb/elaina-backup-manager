@@ -1,12 +1,13 @@
 # plugins/备份工具/main.py
-"""重要信息备份与迁移工具 - v2.7
+"""重要信息备份与迁移工具 - v2.8
 
 入口文件 - 按固定顺序加载 app/ 下的公开子模块, 触发路由、页面与生命周期注册。
 功能实现均位于 app/ 各子模块, 本文件不包含业务逻辑。
-(v2.7 起不再注册聊天指令, 全部功能在 Web 面板「备份迁移」中)
+(v2.7 起不再注册聊天指令, 全部功能在 Web 面板「备份迁移」中;
+ v2.8 起导入备份改用分片上传, 绕开框架 client_max_size 限制)
 
 作者: yhkj-nb
-版本: 2.7.0
+版本: 2.8.0
 仓库: https://github.com/yhkj-nb/elaina-backup-manager
 许可证: MIT
 """
@@ -21,8 +22,8 @@ from core.base.logger import PLUGIN, get_logger
 __plugin_meta__ = {
     'name': '重要信息备份与迁移工具',
     'author': 'yhkj-nb',
-    'description': '一键备份 / 迁移各插件与模块的数据文件 + 配置文件 (含备份工具自身, 可自定义选择插件/模块与内容类型), 支持上传至云盘',
-    'version': '2.7.0',
+    'description': '一键备份 / 迁移各插件与模块的数据文件 + 配置文件 (含备份工具自身, 可自定义选择插件/模块与内容类型), 分片上传 + 云盘备份',
+    'version': '2.8.0',
     'github': 'https://github.com/yhkj-nb/elaina-backup-manager',
     'license': 'MIT',
 }
